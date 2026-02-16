@@ -1,0 +1,12 @@
+# FIXME: Exploit BTTB structure to get faster matrix operations.
+# FIXME: Recognize duplicate layers and merge them if possible
+# FIXME: Recognize homogeneous layers and compute them efficiently (1 mode only?)
+# FIXME: Consider switching sign convention
+# FIXME: Maybe use the syntax: prepare_layer, prepare_wave_vectors
+# FIXME: waveFrontTop and waveFrontBottom aren't used ANYWHERE.
+# FIXME: Pretty prints
+# FIXME: Varying number of harmonics?
+# FIXME: Scattering matrices for refl and trans layer?
+# FIXME: Consider changing the convention for 'number of harmonics'
+# FIXME: Add a hidden _homogeneous tuple(!) to each layer, for faster checking.
+# FIXME: Matrix coordinates is incompatible with Cartesian coordinates.
