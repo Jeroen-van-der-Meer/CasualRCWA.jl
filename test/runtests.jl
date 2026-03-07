@@ -457,8 +457,25 @@ end
     DE_ref_split, DE_trn_split = diffraction_efficiencies(
         RCWA(settings_split))
 
+    # If I add a redundant homogeneous silicon layer below the mark, the result
+    # should still be the same.
+    settings_redundant_layer = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(
+            HomogeneousLayer(1.0),
+            [mark, HomogeneousLayer(n_Si)],
+            HomogeneousLayer(n_Si),
+            [d, 100.0], (3200.0, 100.0)
+        ),
+        (P, Q)
+    )
+    DE_ref_rdt_layer, DE_trn_rdt_layer = diffraction_efficiencies(
+        RCWA(settings_redundant_layer))
+
     @test DE_ref_single ≈ DE_ref_split atol = 1e-10
     @test DE_trn_single ≈ DE_trn_split atol = 1e-10
+    @test DE_ref_single ≈ DE_ref_rdt_layer atol = 1e-10
+    @test DE_trn_single ≈ DE_trn_rdt_layer atol = 1e-10
 end
 
 @testset "Unit cell duplication" begin
@@ -518,6 +535,211 @@ end
             @test abs(DE_trn_doubled[doubled_p, zeroth_q]) < 1e-6
         end
     end
+end
+
+@testset "Fabry-Perot (homogeneous slab)" begin
+    # A homogeneous slab between two different half-spaces should match the
+    # analytical Fabry-Perot reflection formula.
+    n1 = 1.0    # air
+    n2 = 1.5    # glass slab
+    n3 = 2.0    # substrate
+    λ = 300.0
+    P, Q = 3, 3
+    zeroth_p = P ÷ 2 + 1
+    zeroth_q = Q ÷ 2 + 1
+
+    for d in [50.0, 133.0, 266.0, 500.0]
+        settings = RCWASettings(
+            IncomingWave(0.0, 0.0, λ),
+            Stack(HomogeneousLayer(n1), [HomogeneousLayer(n2)], HomogeneousLayer(n3),
+                  [d], (3200.0, 100.0)),
+            (P, Q)
+        )
+        result = RCWA(settings)
+
+        # Analytical Fabry-Perot (negative sign convention: exp(-ikz)).
+        r12 = (n1 - n2) / (n1 + n2)
+        r23 = (n2 - n3) / (n2 + n3)
+        β = 2π * n2 * d / λ
+        r_fp = (r12 + r23 * exp(-2im * β)) / (1 + r12 * r23 * exp(-2im * β))
+        R_fp = abs(r_fp)^2
+        T_fp = 1.0 - R_fp
+
+        # Complex reflection coefficient should match exactly (all modes are
+        # homogeneous, so no truncation error).
+        r_x, r_y = reflection_coefficients(result)
+        @test r_x[zeroth_p, zeroth_q] ≈ r_fp atol = 1e-10
+        @test abs(r_y[zeroth_p, zeroth_q]) < 1e-12
+
+        # Power: diffraction efficiencies.
+        DE_ref, DE_trn = diffraction_efficiencies(result)
+        @test DE_ref[zeroth_p, zeroth_q] ≈ R_fp atol = 1e-10
+        @test DE_trn[zeroth_p, zeroth_q] ≈ T_fp atol = 1e-10
+
+        # Energy conservation.
+        @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-10
+    end
+end
+
+@testset "Stack reversal (reciprocity)" begin
+    # By electromagnetic reciprocity, the total transmitted power through a
+    # lossless stack is the same regardless of which side the light enters from.
+    # For a patterned layer, harmonic truncation slightly breaks the reciprocal
+    # structure, so the tolerance reflects the truncation accuracy.
+    P, Q = 7, 3
+    resolution = 128
+    n_glass = 1.5 - 0.0im
+    pattern = _make_mark_pattern(n_glass, resolution)
+
+    # Forward: air → patterned glass layer → glass substrate.
+    settings_fwd = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_glass),
+              [200.0], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref_fwd, DE_trn_fwd = diffraction_efficiencies(RCWA(settings_fwd))
+
+    # Backward: glass → same patterned layer → air (swap half-spaces).
+    settings_bwd = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(n_glass), [Layer(pattern)], HomogeneousLayer(1.0),
+              [200.0], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref_bwd, DE_trn_bwd = diffraction_efficiencies(RCWA(settings_bwd))
+
+    # Total transmitted power should match (reciprocity, truncation-limited).
+    @test sum(DE_trn_fwd) ≈ sum(DE_trn_bwd) atol = 0.02
+
+    # Both lossless: energy conservation.
+    @test sum(DE_ref_fwd) + sum(DE_trn_fwd) ≈ 1.0 atol = 0.05
+    @test sum(DE_ref_bwd) + sum(DE_trn_bwd) ≈ 1.0 atol = 0.05
+
+    # Since both are lossless, total reflected power must also match.
+    @test sum(DE_ref_fwd) ≈ sum(DE_ref_bwd) atol = 0.02
+end
+
+@testset "Scalar grating equation" begin
+    # In the kinematic regime (thin grating, small index contrast, paraxial
+    # orders), diffracted amplitudes are proportional to the Fourier
+    # coefficients of the permittivity profile. For a 50% duty cycle square
+    # wave these are 1/m for odd m and zero for even m.
+    # A large period (Λ >> λ) ensures all propagating orders are nearly
+    # paraxial, removing kz-dependent corrections.
+    λ = 666.0
+    P, Q = 13, 1
+    resolution = 256
+    n_space = 1.05 - 0.0im # Small contrast: Δn = 0.05
+    d = 5.0 # Very thin: d/λ ≈ 0.01
+
+    pattern = _make_mark_pattern(n_space, resolution)
+
+    settings = RCWASettings(
+        IncomingWave(0.0, 0.0, λ),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(1.0),
+              [d], (50000.0, 100.0)),
+        (P, Q)
+    )
+    result = RCWA(settings)
+    t_x, _ = transmission_coefficients(result)
+
+    zeroth_p = P ÷ 2 + 1
+    amp(m) = abs(t_x[zeroth_p + m, 1])
+
+    # Sanity: diffraction is measurable.
+    @test amp(1) > 1e-6
+
+    # Amplitude ratios should approach 1:1/3:1/5 (Fourier series of square wave).
+    @test amp(1) / amp(3) ≈ 3.0 atol = 0.01
+    @test amp(1) / amp(5) ≈ 5.0 atol = 0.01
+
+    # Symmetry: positive and negative orders have the same amplitude.
+    @test amp(1) ≈ amp(-1) rtol = 1e-6
+    @test amp(3) ≈ amp(-3) rtol = 1e-6
+    @test amp(5) ≈ amp(-5) rtol = 1e-6
+
+    # Even orders are suppressed (50% duty cycle).
+    @test amp(2) / amp(1) < 0.01
+    @test amp(4) / amp(1) < 0.01
+end
+
+@testset "Grating shift (Fourier shift theorem)" begin
+    # Shifting a grating by (Δx, Δy) multiplies the (p,q) diffraction order
+    # coefficient by exp(-i 2π (p·Δx/Λx + q·Δy/Λy)). Amplitudes are unchanged;
+    # only phases shift.
+    resolution = 128
+    P, Q = 5, 5
+    Λx, Λy = 3200.0, 3200.0
+    λ = 588.0
+    d = 200.0
+    n_Cu = 0.63 - 2.78im
+
+    # 2D pattern: rectangular patch (so there is Fourier content in both X and Y).
+    pattern = ones(ComplexF64, resolution, resolution)
+    pattern[1:resolution÷2, 1:resolution÷3] .= n_Cu
+
+    # Shift by (Λx/4, Λy/8) — integer pixel counts so no interpolation error.
+    Δx = Λx / 4
+    Δy = Λy / 8
+    shifted_pattern = circshift(pattern, (resolution ÷ 4, resolution ÷ 8))
+
+    settings_orig = RCWASettings(
+        IncomingWave(0.0, 0.0, λ),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_Cu),
+              [d], (Λx, Λy)),
+        (P, Q)
+    )
+    settings_shifted = RCWASettings(
+        IncomingWave(0.0, 0.0, λ),
+        Stack(HomogeneousLayer(1.0), [Layer(shifted_pattern)], HomogeneousLayer(n_Cu),
+              [d], (Λx, Λy)),
+        (P, Q)
+    )
+
+    result_orig = RCWA(settings_orig)
+    result_shifted = RCWA(settings_shifted)
+
+    r_x_orig, r_y_orig = reflection_coefficients(result_orig)
+    r_x_shifted, r_y_shifted = reflection_coefficients(result_shifted)
+    t_x_orig, t_y_orig = transmission_coefficients(result_orig)
+    t_x_shifted, t_y_shifted = transmission_coefficients(result_shifted)
+
+    zeroth_p = P ÷ 2 + 1
+    zeroth_q = Q ÷ 2 + 1
+
+    for q in 1:Q, p in 1:P
+        dp = p - zeroth_p
+        dq = q - zeroth_q
+        phase = exp(-2π * im * (dp * Δx / Λx + dq * Δy / Λy))
+
+        # Amplitudes must be identical.
+        @test abs(r_x_shifted[p, q]) ≈ abs(r_x_orig[p, q]) atol = 1e-10
+        @test abs(r_y_shifted[p, q]) ≈ abs(r_y_orig[p, q]) atol = 1e-10
+        @test abs(t_x_shifted[p, q]) ≈ abs(t_x_orig[p, q]) atol = 1e-10
+        @test abs(t_y_shifted[p, q]) ≈ abs(t_y_orig[p, q]) atol = 1e-10
+
+        # Phase: shifted coefficient = original × phase factor.
+        # Only meaningful where amplitude is non-negligible.
+        if abs(r_x_orig[p, q]) > 1e-10
+            @test r_x_shifted[p, q] ≈ r_x_orig[p, q] * phase atol = 1e-10
+        end
+        if abs(r_y_orig[p, q]) > 1e-10
+            @test r_y_shifted[p, q] ≈ r_y_orig[p, q] * phase atol = 1e-10
+        end
+        if abs(t_x_orig[p, q]) > 1e-10
+            @test t_x_shifted[p, q] ≈ t_x_orig[p, q] * phase atol = 1e-10
+        end
+        if abs(t_y_orig[p, q]) > 1e-10
+            @test t_y_shifted[p, q] ≈ t_y_orig[p, q] * phase atol = 1e-10
+        end
+    end
+
+    # Diffraction efficiencies must be exactly the same.
+    DE_ref_orig, DE_trn_orig = diffraction_efficiencies(result_orig)
+    DE_ref_shifted, DE_trn_shifted = diffraction_efficiencies(result_shifted)
+    @test DE_ref_orig ≈ DE_ref_shifted atol = 1e-10
+    @test DE_trn_orig ≈ DE_trn_shifted atol = 1e-10
 end
 
 @testset "Output shapes" begin
