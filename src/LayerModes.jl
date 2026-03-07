@@ -23,8 +23,16 @@ function compute_modes(
     M = layer.conv_mu
     Kx = wave_data.waveVectorsX
     Ky = wave_data.waveVectorsY
-
-    return compute_modes(E, M, Kx, Ky)
+    if is_homogeneous(layer)
+        # For homogeneous layers (E and M are scalar multiples of identity), the
+        # eigenvalue problem has degenerate eigenvalues, and eigen() returns
+        # arbitrary eigenvectors. This causes problems when comparing modes
+        # between layers of the same material. Use the analytical solution
+        # instead.
+        return compute_modes_homogeneous(first(E), first(M), Kx, Ky)
+    else
+        return compute_modes(E, M, Kx, Ky)
+    end
 end
 
 function compute_modes(
@@ -38,7 +46,7 @@ function compute_modes(
     EKy = E \ Ky
     MKx = M \ Kx
     MKy = M \ Ky
-    
+
     # The electric and magnetic field components in our layer satisfy the
     # coupled wave equations dH/dz = Q E and dE/dz = P E.
     P = [
@@ -62,6 +70,44 @@ function compute_modes(
     # the same as those of the E-field, and its eigenmodes are directly
     # inferred from those of the E-field.
     M_modes = Q * E_modes * Diagonal(1 ./ eigenvalues)
+    return LayerModes(eigenvalues, E_modes, M_modes)
+end
+
+"""
+Compute eigenmodes analytically for a homogeneous layer.
+
+In a homogeneous medium, all spatial harmonics decouple, so the eigenvectors are
+simply the identity matrix. The eigenvalues are determined by the dispersion
+relation: λ_n = sqrt(kx_n² + ky_n² - εμ).
+"""
+function compute_modes_homogeneous(
+    ε::ComplexF64,
+    μ::ComplexF64,
+    Kx::AbstractMatrix{ComplexF64},
+    Ky::AbstractMatrix{ComplexF64}
+)
+    PQ = size(Kx, 1)
+
+    # Each spatial harmonic n has eigenvalue sqrt(kx_n² + ky_n² - εμ),
+    # repeated for both polarizations.
+    kx = diag(Kx)
+    ky = diag(Ky)
+    λ = sqrt.(Complex.(kx.^2 .+ ky.^2 .- ε * μ))
+    eigenvalues = vcat(λ, λ)
+
+    # Eigenvectors are the identity (harmonics decouple in homogeneous media).
+    E_modes = Matrix{ComplexF64}(I, 2PQ, 2PQ)
+
+    # Magnetic modes: M_modes = Q * E_modes * diag(1/eigenvalues)
+    # Since E_modes = I, this simplifies to Q * diag(1/eigenvalues).
+    MKx = Kx / μ
+    MKy = Ky / μ
+    Q = Matrix{ComplexF64}([
+        Kx*MKy          (-Kx*MKx + ε*I(PQ));
+        (Ky*MKy - ε*I(PQ))  (-Ky*MKx)
+    ])
+    M_modes = Q * Diagonal(1 ./ eigenvalues)
+
     return LayerModes(eigenvalues, E_modes, M_modes)
 end
 

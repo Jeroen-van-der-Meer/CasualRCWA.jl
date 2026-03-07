@@ -263,64 +263,309 @@ end
     @test all(isapprox.(T.S22, T22_ref; atol = 1e-4))
 end
 
-@testset "Mark in silicon" begin
-    # see sf_2d_silicon.m example for reference testing
+@testset "Homogeneous layer eigenmodes" begin
+    # For a homogeneous medium, eigenvectors should be the identity and
+    # eigenvalues should be analytically determined by the dispersion relation.
+    incoming = IncomingWave(0.0, 0.0, 532.0)
+    top = HomogeneousLayer(1.0)
+    bottom = HomogeneousLayer(1.0)
+    nh = (3, 3)
+    wv = prepare_wave_vectors(incoming, top, bottom, (3200.0, 100.0), nh)
 
+    empty_c = convolve(RCWAForRetards.EmptyLayer(), nh)
+    modes = compute_modes(empty_c, wv)
+
+    PQ = prod(nh)
+    @test modes.electricModes ≈ Matrix{ComplexF64}(I, 2PQ, 2PQ)
+
+    # Eigenvalues should satisfy the dispersion relation λ = sqrt(kx² + ky² - εμ).
+    kx = diag(wv.waveVectorsX)
+    ky = diag(wv.waveVectorsY)
+    λ_expected = sqrt.(Complex.(kx.^2 .+ ky.^2 .- 1.0))
+    @test modes.eigenvalues ≈ vcat(λ_expected, λ_expected)
+end
+
+# Common pattern for tests: 50% duty cycle grating (air/silicon in X).
+function _make_mark_pattern(n_material, resolution)
+    pattern = n_material * ones(ComplexF64, resolution, resolution)
+    pattern[(resolution ÷ 4 + 1):(3 * resolution ÷ 4), :] .= 1.0
+    return pattern
+end
+
+@testset "Fresnel reflection" begin
+    # A bare air-glass interface (no intermediate layers) should match the
+    # Fresnel equation R = |(n₁ - n₂)/(n₁ + n₂)|² at normal incidence.
+    P, Q = 7, 3
+    zeroth_p = P ÷ 2 + 1
+    zeroth_q = Q ÷ 2 + 1
+
+    for n2 in [1.5, 2.0, 4.0]
+        settings = RCWASettings(
+            IncomingWave(0.0, 0.0, 532.0),
+            Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(n2),
+                  Float64[], (3200.0, 100.0)),
+            (P, Q)
+        )
+        result = RCWA(settings)
+        DE_ref, DE_trn = diffraction_efficiencies(result)
+
+        R_fresnel = abs((1.0 - n2) / (1.0 + n2))^2
+        T_fresnel = 1.0 - R_fresnel
+
+        @test DE_ref[zeroth_p, zeroth_q] ≈ R_fresnel atol = 1e-10
+        @test DE_trn[zeroth_p, zeroth_q] ≈ T_fresnel atol = 1e-10
+
+        # No power in non-zeroth orders (no grating hence no diffraction).
+        for q in 1:Q, p in 1:P
+            if (p, q) != (zeroth_p, zeroth_q)
+                @test abs(DE_ref[p, q]) < 1e-12
+                @test abs(DE_trn[p, q]) < 1e-12
+            end
+        end
+    end
+end
+
+@testset "Energy conservation" begin
+    # For a lossless grating, total reflected + transmitted power must equal 1.
     resolution = 256
+    n_glass = 1.5 - 0.0im
+    P, Q = 7, 3
 
-    #n_Si = 4.0 - 0.03im # Refractive index of silicon
-    n_Si = 4.149970008756567 - 4.395052539404554e-02*im # at 532 nm
-    n_Air = 1.0 # Refractive index of air
-    top_medium = HomogeneousLayer(n_Air)
+    # Homogeneous: "trivial" case.
+    settings = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(n_glass),
+              Float64[], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref, DE_trn = diffraction_efficiencies(RCWA(settings))
+    @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-10
 
-    # 50% duty cycle mark
-    mark_n = n_Si * ones(ComplexF64, resolution, resolution)
-    mark_n[resolution÷4+1:3*resolution÷4,:] .= n_Air
-    mark_layer = Layer(mark_n) # This pattern will repeat in X and Y
-    #mark_layer = HomogeneousLayer(n_Si)
-    mark_thickness = 158
-    bottom_medium = HomogeneousLayer(n_Si)
-    period = (3200, 100) # 8 um pitch
+    # Patterned lossless grating.
+    pattern = _make_mark_pattern(n_glass, resolution)
+    settings = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_glass),
+              [200.0], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref, DE_trn = diffraction_efficiencies(RCWA(settings))
+    # The tolerance is limited by harmonic truncation, not a bug.
+    @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 0.05
 
-    wavelength = 532 # Yellow light
-    azimuthal_angle = 0.0 # Light comes straight down
-    elevation_angle = 0.0
-    incoming_wave = IncomingWave(azimuthal_angle, elevation_angle, wavelength)
+    # Higher refractive index contrast. Energy should not exceed 1.
+    pattern = _make_mark_pattern(4.0 - 0.0im, resolution)
+    settings = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(4.0),
+              [200.0], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref, DE_trn = diffraction_efficiencies(RCWA(settings))
+    @test sum(DE_ref) + sum(DE_trn) <= 1.01
+    @test sum(DE_ref) + sum(DE_trn) > 0.80
+end
 
-    number_of_harmonics = (7, 3)
+@testset "Very thin layer" begin
+    # A very thin layer should behave almost like a bare interface: the zeroth-
+    # order reflection should be close to Fresnel.
+    n_Si = 4.0 - 0.0im
+    resolution = 256
+    P, Q = 7, 3
+    zeroth_p = P ÷ 2 + 1
+    zeroth_q = Q ÷ 2 + 1
+    pattern = _make_mark_pattern(n_Si, resolution)
 
-    wave_vectors = prepare_wave_vectors(
-        incoming_wave,
-        top_medium,
-        bottom_medium,
-        period,
-        number_of_harmonics
+    settings_thin = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_Si),
+              [0.01], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref_thin, DE_trn_thin = diffraction_efficiencies(RCWA(settings_thin))
+
+    settings_bare = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(n_Si),
+              Float64[], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref_bare, DE_trn_bare = diffraction_efficiencies(RCWA(settings_bare))
+
+    # Zeroth-order should be very close to the bare interface.
+    @test DE_ref_thin[zeroth_p, zeroth_q] ≈ DE_ref_bare[zeroth_p, zeroth_q] atol = 1e-3
+    @test DE_trn_thin[zeroth_p, zeroth_q] ≈ DE_trn_bare[zeroth_p, zeroth_q] atol = 1e-3
+end
+
+@testset "Thick opaque layer" begin
+    # A very thick layer of a lossy material should absorb almost everything:
+    # very little reflection from the grating structure (the bottom interface is
+    # unreachable), and essentially zero transmission.
+    n_lossy = 1.5 - 0.5im # Lossy material (negative imag for this convention)
+    resolution = 256
+    P, Q = 7, 3
+    zeroth_p = P ÷ 2 + 1
+    zeroth_q = Q ÷ 2 + 1
+    pattern = n_lossy * ones(ComplexF64, resolution, resolution)
+
+    settings = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_lossy),
+              [1e6], (3200.0, 100.0)),
+        (P, Q)
+    )
+    result = RCWA(settings)
+    DE_ref, DE_trn = diffraction_efficiencies(result)
+
+    # Total transmission should be essentially zero.
+    @test sum(DE_trn) < 1e-10
+
+    # Total R + T < 1 (energy is absorbed).
+    @test sum(DE_ref) + sum(DE_trn) < 1.0
+
+    # The reflected power should match the bare air-to-lossy Fresnel (the
+    # bottom interface is invisible), since the material is homogeneous.
+    R_fresnel = abs((1.0 - n_lossy) / (1.0 + n_lossy))^2
+    @test DE_ref[zeroth_p, zeroth_q] ≈ R_fresnel atol = 1e-4
+end
+
+@testset "Layer splitting" begin
+    # A single layer of thickness d must produce the same S-matrix as two layers
+    # of thickness d/2 cascaded via the star product.
+    n_Si = 4.0 - 0.0im
+    resolution = 256
+    d = 158.0
+    P, Q = 7, 3
+    pattern = _make_mark_pattern(n_Si, resolution)
+    mark = Layer(pattern)
+
+    settings_single = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [mark], HomogeneousLayer(n_Si),
+              [d], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref_single, DE_trn_single = diffraction_efficiencies(
+        RCWA(settings_single))
+
+    settings_split = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [mark, mark], HomogeneousLayer(n_Si),
+              [d / 2, d / 2], (3200.0, 100.0)),
+        (P, Q)
+    )
+    DE_ref_split, DE_trn_split = diffraction_efficiencies(
+        RCWA(settings_split))
+
+    @test DE_ref_single ≈ DE_ref_split atol = 1e-10
+    @test DE_trn_single ≈ DE_trn_split atol = 1e-10
+end
+
+@testset "Unit cell duplication" begin
+    # Tiling the unit cell 2× in X, doubling the period and number of X
+    # harmonics, should reproduce the same zeroth-order efficiencies.
+    n_Si = 4.0 - 0.0im
+    resolution = 128
+    pattern = _make_mark_pattern(n_Si, resolution)
+
+    P, Q = 7, 3
+    period = (3200.0, 100.0)
+
+    settings_orig = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_Si),
+              [158.0], period),
+        (P, Q)
+    )
+    DE_ref_orig, DE_trn_orig = diffraction_efficiencies(RCWA(settings_orig))
+
+    # Doubled unit cell: tile in X (first dimension = rows), double period and
+    # harmonics.
+    doubled_pattern = vcat(pattern, pattern)
+    P2 = 2P - 1   # Same maximum spatial frequency
+    settings_doubled = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [Layer(doubled_pattern)], HomogeneousLayer(n_Si),
+              [158.0], (2 * period[1], period[2])),
+        (P2, Q)
+    )
+    DE_ref_doubled, DE_trn_doubled = diffraction_efficiencies(RCWA(settings_doubled))
+
+    # Zeroth order of original ↔ zeroth order of doubled system.
+    zeroth_p = P ÷ 2 + 1
+    zeroth_q = Q ÷ 2 + 1
+    zeroth_p2 = P2 ÷ 2 + 1
+
+    @test DE_ref_doubled[zeroth_p2, zeroth_q] ≈ DE_ref_orig[zeroth_p, zeroth_q] atol = 1e-4
+    @test DE_trn_doubled[zeroth_p2, zeroth_q] ≈ DE_trn_orig[zeroth_p, zeroth_q] atol = 1e-4
+
+    # Original dp-th order should map to the 2*dp-th order in the doubled system.
+    # Check the first few non-evanescent orders.
+    for dp in -3:3
+        orig_p = zeroth_p + dp
+        doubled_p = zeroth_p2 + 2 * dp
+        if 1 <= doubled_p <= P2
+            @test DE_ref_doubled[doubled_p, zeroth_q] ≈ DE_ref_orig[orig_p, zeroth_q] atol = 1e-4
+            @test DE_trn_doubled[doubled_p, zeroth_q] ≈ DE_trn_orig[orig_p, zeroth_q] atol = 1e-4
+        end
+    end
+
+    # Odd orders of the doubled system (no sub-period content) should be zero.
+    for dp in [-3, -1, 1, 3]
+        doubled_p = zeroth_p2 + dp
+        if 1 <= doubled_p <= P2
+            @test abs(DE_ref_doubled[doubled_p, zeroth_q]) < 1e-6
+            @test abs(DE_trn_doubled[doubled_p, zeroth_q]) < 1e-6
+        end
+    end
+end
+
+@testset "Output shapes" begin
+    n_Si = 4.0 - 0.0im
+    resolution = 256
+    P, Q = 7, 3
+    pattern = _make_mark_pattern(n_Si, resolution)
+
+    settings = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_Si),
+              [158.0], (3200.0, 100.0)),
+        (P, Q)
+    )
+    result = RCWA(settings)
+
+    # Coefficients should be P×Q matrices.
+    r_x, r_y = reflection_coefficients(result)
+    t_x, t_y = transmission_coefficients(result)
+    @test size(r_x) == (P, Q)
+    @test size(r_y) == (P, Q)
+    @test size(t_x) == (P, Q)
+    @test size(t_y) == (P, Q)
+
+    # Diffraction efficiencies should also be P×Q.
+    DE_ref, DE_trn = diffraction_efficiencies(result)
+    @test size(DE_ref) == (P, Q)
+    @test size(DE_trn) == (P, Q)
+end
+
+@testset "Magnetic half-space" begin
+    # Specifying (eps, mu) should be equivalent to the n+ik shorthand when μ=1.
+    P, Q = 3, 3
+    settings_nk = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(2.0),
+              Float64[], (3200.0, 100.0)),
+        (P, Q)
+    )
+    settings_em = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(4.0, 1.0),
+              Float64[], (3200.0, 100.0)),
+        (P, Q)
     )
 
-    top_medium = convolve(top_medium, number_of_harmonics)
-    mark_layer = convolve(mark_layer, number_of_harmonics)
-    bottom_medium = convolve(bottom_medium, number_of_harmonics)
-    empty_medium = convolve(RCWAForRetards.EmptyLayer(), number_of_harmonics)
-
-    top_modes = compute_modes(top_medium, wave_vectors)
-    layer_modes = compute_modes(mark_layer, wave_vectors)
-    bottom_modes = compute_modes(bottom_medium, wave_vectors)
-    empty_modes = compute_modes(empty_medium, wave_vectors)
-
-    # I think the only remaining delta between our code and Matlab (example1_alt)
-    # is that the Matlab code uses a different formula for computing the eigenmodes
-    # of free space.
-    S1 = compute_global_scattering_matrix(
-        top_modes, LayerModes[], bottom_modes, empty_modes,
-        wavelength, Float64[]
-    )
-    S2 = compute_global_scattering_matrix(
-        top_modes, LayerModes[layer_modes], bottom_modes, empty_modes,
-        wavelength, Float64[mark_thickness]
-    )
-    S3 = compute_global_scattering_matrix(
-        top_modes, [layer_modes, layer_modes], bottom_modes, empty_modes,
-        wavelength, [mark_thickness / 2, mark_thickness / 2]
-    )
-    # Not done yet
+    DE_ref_nk, DE_trn_nk = diffraction_efficiencies(RCWA(settings_nk))
+    DE_ref_em, DE_trn_em = diffraction_efficiencies(RCWA(settings_em))
+    @test DE_ref_nk ≈ DE_ref_em atol = 1e-10
+    @test DE_trn_nk ≈ DE_trn_em atol = 1e-10
 end

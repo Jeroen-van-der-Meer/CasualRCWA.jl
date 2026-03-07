@@ -23,6 +23,13 @@ export compute_flat_scattering_matrix
 export compute_global_scattering_matrix
 export compute_scattering_matrix
 export compute_symmetric_scattering_matrix
+export diffraction_efficiencies
+export RCWA
+export RCWAResult
+export RCWASettings
+export Stack
+export reflection_coefficients
+export transmission_coefficients
 export ScatteringMatrix
 export SymmetricScatteringMatrix
 export star_product
@@ -32,6 +39,6 @@ include("Layers.jl")
 include("WaveVectorPreparation.jl")
 include("LayerModes.jl")
 include("ScatteringMatrices.jl")
-include("Stacks.jl")
+include("RCWA.jl")
 
 end # module RCWA

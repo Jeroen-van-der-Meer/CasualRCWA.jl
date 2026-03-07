@@ -54,8 +54,8 @@ HomogeneousLayer(eps::Number, mu::Number) = Layer([eps;;], [mu;;])
 HomogeneousLayer(nk::Number) = Layer([nk;;])
 EmptyLayer() = HomogeneousLayer(1)
 
-is_homogeneous(layer::Layer) = is_homogeneous(layer.eps) && is_homogeneous(layer.mu)
-is_homogeneous(M::Matrix{ComplexF64}) = length(unique(M)) == 1
+is_homogeneous(layer::Layer) = (length(unique(layer.eps)) == 1) &&
+    (length(unique(layer.mu)) == 1)
 
 """
     struct ConvolvedLayer
@@ -114,7 +114,7 @@ function convolve(
 )
     P, Q = number_of_harmonics
     @assert (P >= 1) && (Q >= 1)
-    if is_homogeneous(M)
+    if length(unique(M)) == 1
         # For a homogeneous layer, the convolve operation is independent of the
         # size of M, so we set M to be the minimum size to make the computation
         # go through.
@@ -142,4 +142,22 @@ function _get_block(M::Matrix{ComplexF64}, i::Int64, P::Int64, PQ::Int64)
     vr[1] = vc[1]
     vr[2:end] .= M[end:-1:end-P+2, i] ./ length(M)
     return Toeplitz{ComplexF64}(vc, vr)
+end
+
+is_homogeneous(layer::ConvolvedLayer) = _is_scaled_identity(layer.conv_eps) &&
+    _is_scaled_identity(layer.conv_mu)
+
+"""
+Check whether a matrix is a scalar multiple of the identity matrix.
+"""
+function _is_scaled_identity(M::AbstractMatrix{ComplexF64}; atol=1e-10)
+    n = size(M, 1)
+    s = first(M)
+    for j in 1:n, i in 1:n
+        expected = (i == j) ? s : zero(ComplexF64)
+        if abs(M[i, j] - expected) > atol
+            return false
+        end
+    end
+    return true
 end
