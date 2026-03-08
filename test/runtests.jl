@@ -12,13 +12,13 @@ using Test
         0.4425 + 0.2311im   0.5295 + 0.1017im   0.3051 + 0.4813im   0.3582 + 0.5441im
     ]
 
-    CM = convolve(M, (1, 1))
+    CM = RCWAForRetards.convolve(M, (1, 1))
     CM_ref = [
         0.4621 + 0.4906im
     ]
     @test all(isapprox.(CM, CM_ref; atol = 1e-4))
 
-    CM = convolve(M, (2, 2))
+    CM = RCWAForRetards.convolve(M, (2, 2))
     CM_ref = [
         0.4621 + 0.4906im  -0.0286 - 0.0878im   0.0457 + 0.0215im   0.0653 + 0.0112im
         0.0643 - 0.0699im   0.4621 + 0.4906im   0.1364 + 0.0351im   0.0457 + 0.0215im
@@ -37,7 +37,7 @@ end
         0.3745 + 0.8099im   0.4277 + 0.8951im   0.8434 + 0.0601im   0.5731 + 0.6949im   0.1452 + 0.3578im
     ]
 
-    CM = convolve(M, (2, 3))
+    CM = RCWAForRetards.convolve(M, (2, 3))
     CM_ref = [
         0.4734 + 0.5013im  -0.0271 - 0.0397im   0.1208 + 0.1052im  -0.0456 + 0.0671im   0.0103 + 0.0420im   0.0230 + 0.1274im
        -0.0409 + 0.0052im   0.4734 + 0.5013im  -0.0158 - 0.0479im   0.1208 + 0.1052im   0.0551 - 0.0125im   0.0103 + 0.0420im
@@ -61,7 +61,7 @@ end
 
     number_of_harmonics = (3, 3)
 
-    prepared_wave_vectors = prepare_wave_vectors(
+    prepared_wave_vectors = RCWAForRetards.prepare_wave_vectors(
         incoming_wave,
         top_medium,
         bottom_medium,
@@ -137,7 +137,7 @@ end
     ]
     Kx = Diagonal([0.9597 + 0.5853im, 0.3404 + 0.2238im])
     Ky = Diagonal([0.7513 + 0.5060im, 0.2551 + 0.6991im])
-    layer_modes = compute_modes(E, M, Kx, Ky)
+    layer_modes = RCWAForRetards.compute_modes(E, M, Kx, Ky)
 
     eigenvalues = layer_modes.eigenvalues
     # There is no guarantee about the order in which Julia returns the
@@ -218,11 +218,11 @@ end
         0.2551 + 0.8407im   0.8909 + 0.2435im   0.1386 + 0.1966im
         0.5060 + 0.2543im   0.9593 + 0.9293im   0.1493 + 0.2511im
     ]
-    A = ScatteringMatrix(A11, A12, A21, A22)
-    B = ScatteringMatrix(A22, A21, A12, A11)
+    A = RCWAForRetards.ScatteringMatrix(A11, A12, A21, A22)
+    B = RCWAForRetards.ScatteringMatrix(A22, A21, A12, A11)
 
-    S = star_product(A, B)
-    T = star_product(B, A)
+    S = RCWAForRetards.star_product(A, B)
+    T = RCWAForRetards.star_product(B, A)
 
     S11_ref = [
        -0.3913 + 0.6709im  -0.6161 - 0.1178im
@@ -270,10 +270,10 @@ end
     top = HomogeneousLayer(1.0)
     bottom = HomogeneousLayer(1.0)
     nh = (3, 3)
-    wv = prepare_wave_vectors(incoming, top, bottom, (3200.0, 100.0), nh)
+    wv = RCWAForRetards.prepare_wave_vectors(incoming, top, bottom, (3200.0, 100.0), nh)
 
-    empty_c = convolve(RCWAForRetards.EmptyLayer(), nh)
-    modes = compute_modes(empty_c, wv)
+    empty_c = RCWAForRetards.convolve(HomogeneousLayer(1.0), nh)
+    modes = RCWAForRetards.compute_modes(empty_c, wv)
 
     PQ = prod(nh)
     @test modes.electricModes ≈ Matrix{ComplexF64}(I, 2PQ, 2PQ)

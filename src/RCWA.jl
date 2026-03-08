@@ -90,7 +90,7 @@ function RCWA(s::RCWASettings)
     # Convolve layers
     top_c    = convolve(top_medium, s.numberOfHarmonics)
     bottom_c = convolve(bottom_medium, s.numberOfHarmonics)
-    empty_c  = convolve(EmptyLayer(), s.numberOfHarmonics)
+    empty_c  = convolve(HomogeneousLayer(1.0), s.numberOfHarmonics)
     layers_c = [convolve(l, s.numberOfHarmonics) for l in s.stack.layers]
 
     # Compute eigenmodes

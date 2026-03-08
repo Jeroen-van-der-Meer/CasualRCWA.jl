@@ -4,35 +4,21 @@ using FFTW
 using LinearAlgebra
 using ToeplitzMatrices
 
-export BTTB
-
-export convolve
-export ConvolvedLayer
-export EmptyLayer
+# Functionality to set up inputs.
 export HomogeneousLayer
-export Layer
-
 export IncomingWave
-export PreparedWaveVectors
-export prepare_wave_vectors
-
-export compute_modes
-export LayerModes
-
-export compute_flat_scattering_matrix
-export compute_global_scattering_matrix
-export compute_scattering_matrix
-export compute_symmetric_scattering_matrix
-export diffraction_efficiencies
-export RCWA
-export RCWAResult
+export Layer
 export RCWASettings
 export Stack
+
+# Core function and results struct.
+export RCWA
+export RCWAResult
+
+# Helper functions to interpret output.
+export diffraction_efficiencies
 export reflection_coefficients
 export transmission_coefficients
-export ScatteringMatrix
-export SymmetricScatteringMatrix
-export star_product
 
 include("BTTB.jl")
 include("Layers.jl")

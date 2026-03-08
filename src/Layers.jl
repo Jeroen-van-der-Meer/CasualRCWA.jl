@@ -52,7 +52,6 @@ end
 
 HomogeneousLayer(eps::Number, mu::Number) = Layer([eps;;], [mu;;])
 HomogeneousLayer(nk::Number) = Layer([nk;;])
-EmptyLayer() = HomogeneousLayer(1)
 
 is_homogeneous(layer::Layer) = (length(unique(layer.eps)) == 1) &&
     (length(unique(layer.mu)) == 1)
