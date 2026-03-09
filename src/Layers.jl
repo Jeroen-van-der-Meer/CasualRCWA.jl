@@ -10,6 +10,10 @@ Note that we use the negative sign convention where a wave propagating in the
 +z-direction is written as exp(-ikz). As such, the imaginary part of the complex
 permittivity is negative.
 
+The input matrices use Cartesian convention: columns correspond to the X
+direction, rows to Y, with row 1 being the +Y edge. Internally, the matrices
+are stored with dim1 = X and dim2 = Y.
+
 # Properties
 
 - `eps::Matrix{ComplexF64}`: Complex relative electric permittivity per pixel.
@@ -24,6 +28,10 @@ struct Layer <: AbstractLayer
         mu::AbstractMatrix{<:Number}
     )
         @assert all(imag(eps) .<= 0)
+        # Map user convention (cols = X, rows = Y, top = +Y) to internal
+        # layout (dim1 = X, dim2 = Y).
+        eps = collect(reverse(transpose(eps), dims = 2))
+        mu  = collect(reverse(transpose(mu),  dims = 2))
         return new(eps, mu)
     end
 end
@@ -119,10 +127,15 @@ function convolve(
         # go through.
         M = first(M) * ones(P, Q)
     else
-        # For a non-homogeneous layer, we could 'stretch' our matrix until the
-        # computation becomes valid, however it is likely that the user is
-        # incorrectly using too low a resolution.
-        @assert (P <= size(M, 1)) && (Q <= size(M, 2))
+        # Stretch the pattern until it is at least P × Q by repeating each
+        # pixel.  This lets users specify a minimal unit cell (e.g.
+        # [n_Si n_Air] for a 50% duty cycle X-grating) and have it
+        # automatically upsampled.
+        reps_x = cld(P, size(M, 1))
+        reps_y = cld(Q, size(M, 2))
+        if reps_x > 1 || reps_y > 1
+            M = repeat(M; inner = (reps_x, reps_y))
+        end
     end
     FM = fft(M)
     PQ = P * Q

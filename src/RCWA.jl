@@ -42,12 +42,14 @@ All parameters needed to run an RCWA simulation.
 
 - `incomingWave::IncomingWave`: Incoming wave specification (angles, wavelength).
 - `stack::Stack`: Layer stack including top and bottom half-spaces.
-- `numberOfHarmonics::Tuple{Int64, Int64}`: Number of Fourier harmonics (P, Q).
+- `harmonicOrder::Tuple{Int64, Int64}`: Maximum harmonic order (N, M).
+  The simulation includes orders -N..N and -M..M, for a total of (2N+1)(2M+1)
+  harmonics.
 """
 struct RCWASettings
     incomingWave::IncomingWave
     stack::Stack
-    numberOfHarmonics::Tuple{Int64, Int64}
+    harmonicOrder::Tuple{Int64, Int64}
 end
 
 """
@@ -80,18 +82,19 @@ function RCWA(s::RCWASettings)
     top_medium = s.stack.topMedium
     bottom_medium = s.stack.bottomMedium
     wavelength = s.incomingWave.wavelength
+    PQ = (2 * s.harmonicOrder[1] + 1, 2 * s.harmonicOrder[2] + 1)
 
     # Prepare wave vectors
     wave_vectors = prepare_wave_vectors(
         s.incomingWave, top_medium, bottom_medium,
-        s.stack.period, s.numberOfHarmonics
+        s.stack.period, PQ
     )
 
     # Convolve layers
-    top_c    = convolve(top_medium, s.numberOfHarmonics)
-    bottom_c = convolve(bottom_medium, s.numberOfHarmonics)
-    empty_c  = convolve(HomogeneousLayer(1.0), s.numberOfHarmonics)
-    layers_c = [convolve(l, s.numberOfHarmonics) for l in s.stack.layers]
+    top_c    = convolve(top_medium, PQ)
+    bottom_c = convolve(bottom_medium, PQ)
+    empty_c  = convolve(HomogeneousLayer(1.0), PQ)
+    layers_c = [convolve(l, PQ) for l in s.stack.layers]
 
     # Compute eigenmodes
     top_modes = compute_modes(top_c, wave_vectors)
@@ -109,9 +112,11 @@ function RCWA(s::RCWASettings)
 end
 
 """Build the 2PQ incident source vector for the zeroth harmonic."""
-function _source_vector(P::Int, Q::Int, polarization::Symbol)
+function _source_vector(N::Int, M::Int, polarization::Symbol)
+    P = 2N + 1
+    Q = 2M + 1
     PQ = P * Q
-    zeroth = Int(floor(P / 2)) + 1 + Int(floor(Q / 2)) * P
+    zeroth = N + 1 + M * P
     c_inc = zeros(ComplexF64, 2PQ)
     if polarization === :x
         c_inc[zeroth] = 1.0
@@ -133,9 +138,11 @@ function reflection_coefficients(
     result::RCWAResult;
     polarization::Symbol = :x,
 )
-    P, Q = result.input.numberOfHarmonics
+    N, M = result.input.harmonicOrder
+    P = 2N + 1
+    Q = 2M + 1
     PQ = P * Q
-    c_inc = _source_vector(P, Q, polarization)
+    c_inc = _source_vector(N, M, polarization)
     c_ref = result.scatteringMatrix.S11 * c_inc
     r_x = reshape(c_ref[1:PQ], P, Q)
     r_y = reshape(c_ref[PQ+1:2PQ], P, Q)
@@ -152,9 +159,11 @@ function transmission_coefficients(
     result::RCWAResult;
     polarization::Symbol = :x,
 )
-    P, Q = result.input.numberOfHarmonics
+    N, M = result.input.harmonicOrder
+    P = 2N + 1
+    Q = 2M + 1
     PQ = P * Q
-    c_inc = _source_vector(P, Q, polarization)
+    c_inc = _source_vector(N, M, polarization)
     c_trn = result.scatteringMatrix.S21 * c_inc
     t_x = reshape(c_trn[1:PQ], P, Q)
     t_y = reshape(c_trn[PQ+1:2PQ], P, Q)
@@ -176,7 +185,9 @@ function diffraction_efficiencies(
     result::RCWAResult;
     polarization::Symbol = :x,
 )
-    P, Q = result.input.numberOfHarmonics
+    N, M = result.input.harmonicOrder
+    P = 2N + 1
+    Q = 2M + 1
     PQ = P * Q
     top_mu = result.input.stack.topMedium.mu[1, 1]
     bottom_mu = result.input.stack.bottomMedium.mu[1, 1]
@@ -189,7 +200,7 @@ function diffraction_efficiencies(
     K_top    = diag(result.waveVectors.waveVectorsTop)
     K_bottom = diag(result.waveVectors.waveVectorsBottom)
 
-    zeroth = Int(floor(P / 2)) + 1 + Int(floor(Q / 2)) * P
+    zeroth = N + 1 + M * P
 
     # Incident power (source is a single transverse polarization component).
     Ex_inc = polarization === :x ? 1.0 : 0.0
