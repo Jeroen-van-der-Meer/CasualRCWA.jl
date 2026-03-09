@@ -126,43 +126,59 @@ function convolve(
         # size of M, so we set M to be the minimum size to make the computation
         # go through.
         M = first(M) * ones(P, Q)
-    else
-        # Stretch the pattern until it is at least P × Q by repeating each
-        # pixel.  This lets users specify a minimal unit cell (e.g.
-        # [n_Si n_Air] for a 50% duty cycle X-grating) and have it
-        # automatically upsampled.
-        reps_x = cld(P, size(M, 1))
-        reps_y = cld(Q, size(M, 2))
-        if reps_x > 1 || reps_y > 1
-            M = repeat(M; inner = (reps_x, reps_y))
-        end
     end
+    Nx, Ny = size(M)
     FM = fft(M)
-    PQ = P * Q
-    blocks = [_get_block(FM, i, P, PQ) for i = -Q+2:Q]
-    vc = blocks[Q:2Q-1]
-    vr = blocks[Q:-1:1]
+    # Build blocks for all Y-harmonic differences Δq = -(Q-1)..+(Q-1).
+    blocks = [_get_block(FM, Nx, Ny, Δq, P) for Δq in -(Q-1):(Q-1)]
+    vc = blocks[Q:2Q-1]     # Δq = 0, 1, ..., Q-1
+    vr = blocks[Q:-1:1]     # Δq = 0, -1, ..., -(Q-1)
     return BTTB(vc, vr)
 end
 
-function _get_block(M::Matrix{ComplexF64}, i::Int64, P::Int64, PQ::Int64)
-    if i <= 0
-        i += size(M, 2)
-    end
-    vc = M[1:P, i] ./ length(M)
+"""
+    _get_block(FM, Nx, Ny, Δq, P)
+
+Build the Toeplitz block for Y-harmonic difference `Δq` from the FFT `FM` of
+a pattern of native size `(Nx, Ny)`.
+
+Each entry is the exact Fourier coefficient of the piecewise-constant function
+defined by the pixel grid.  This is the raw DFT coefficient multiplied by the
+rectangular-pixel transfer function `h(k, N)`, which makes the result
+independent of the input resolution.
+"""
+function _get_block(FM::Matrix{ComplexF64}, Nx::Int64, Ny::Int64, Δq::Int64, P::Int64)
+    hq = _pixel_transfer(Δq, Ny)
+    vc = Vector{ComplexF64}(undef, P)
     vr = Vector{ComplexF64}(undef, P)
+    for j in 1:P
+        Δp = j - 1   # 0, 1, ..., P-1
+        vc[j] = FM[mod(Δp, Nx) + 1, mod(Δq, Ny) + 1] / (Nx * Ny) *
+                _pixel_transfer(Δp, Nx) * hq
+    end
     vr[1] = vc[1]
-    vr[2:end] .= M[end:-1:end-P+2, i] ./ length(M)
+    for j in 2:P
+        Δp = -(j - 1)   # -1, -2, ..., -(P-1)
+        vr[j] = FM[mod(Δp, Nx) + 1, mod(Δq, Ny) + 1] / (Nx * Ny) *
+                _pixel_transfer(Δp, Nx) * hq
+    end
     return Toeplitz{ComplexF64}(vc, vr)
+end
+
+# Transfer function of a single rectangular pixel of width 1/N in a unit cell.
+# Maps the raw DFT coefficient to the exact Fourier coefficient of the
+# piecewise-constant function: `h(k, N) = (1 - exp(-2πik/N)) / (2πik/N)`.
+function _pixel_transfer(k::Int64, N::Int64)
+    k == 0 && return complex(1.0)
+    u = 2π * k / N
+    return (1 - exp(-im * u)) / (im * u)
 end
 
 is_homogeneous(layer::ConvolvedLayer) = _is_scaled_identity(layer.conv_eps) &&
     _is_scaled_identity(layer.conv_mu)
 
-"""
-Check whether a matrix is a scalar multiple of the identity matrix.
-"""
-function _is_scaled_identity(M::AbstractMatrix{ComplexF64}; atol=1e-10)
+# Check whether a matrix is a scalar multiple of the identity matrix.
+function _is_scaled_identity(M::AbstractMatrix{ComplexF64}; atol = 1e-10)
     n = size(M, 1)
     s = first(M)
     for j in 1:n, i in 1:n

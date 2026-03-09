@@ -111,8 +111,8 @@ function RCWA(s::RCWASettings)
     return RCWAResult(Sg, wave_vectors, s)
 end
 
-"""Build the 2PQ incident source vector for the zeroth harmonic."""
-function _source_vector(N::Int, M::Int, polarization::Symbol)
+# Build the 2PQ incident source vector for the zeroth harmonic.
+function _source_vector(N::Int64, M::Int64, polarization::Symbol)
     P = 2N + 1
     Q = 2M + 1
     PQ = P * Q
