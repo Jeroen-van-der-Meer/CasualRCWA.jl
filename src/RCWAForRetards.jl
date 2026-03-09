@@ -5,15 +5,14 @@ using LinearAlgebra
 using ToeplitzMatrices
 
 # Functionality to set up inputs.
-export HomogeneousLayer
-export IncomingWave
 export Layer
-export RCWASettings
+export Source
 export Stack
 
-# Core function and results struct.
+# Core function.
 export RCWA
-export RCWAResult
+export RCWAInput
+export RCWAOutput
 
 # Helper functions to interpret output.
 export diffraction_efficiencies

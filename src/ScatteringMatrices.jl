@@ -120,49 +120,46 @@ end
 
 """
     function compute_global_scattering_matrix(
-        top_modes, layer_modes, bottom_modes, wave_vectors;
-        thickness
+        modes, free_space_modes, wavelength, thicknesses
     )
 
 Compute the global scattering matrix associated to a stack of RCWA layers.
 
 # Arguments
 
-- `top_modes::LayerModes`: Modes associated to the top homogeneous medium.
-- `layer_modes::AbstractVector{LayerModes}`: Modes associated to the RCWA
-  layers.
-- `bottom_modes::LayerModes`: Modes associated to the bottom homogeneous medium.
+- `modes::AbstractVector{LayerModes}`: Modes associated to each layer,
+  including the top and bottom half-spaces as the first and last elements.
+- `free_space_modes::LayerModes`: Modes associated to free space.
 - `wavelength::Real`: Wavelength of the incoming light.
-- `layer_thicknesses::AbstractVector{<:Real}`: Thicknesses of the RCWA layers.
+- `thicknesses::AbstractVector{<:Real}`: Thicknesses of each layer. The first
+  and last elements must be `Inf`.
 """
 function compute_global_scattering_matrix(
-    top_modes::LayerModes,
-    layer_modes::AbstractVector{LayerModes},
-    bottom_modes::LayerModes,
+    modes::AbstractVector{LayerModes},
     free_space_modes::LayerModes,
     wavelength::Real,
-    layer_thicknesses::AbstractVector{<:Real}
+    thicknesses::AbstractVector{<:Real}
 )
-    nmodes = number_of_modes(top_modes) # = 2PQ
-    @assert all(number_of_modes.(layer_modes) .== nmodes)
-    @assert number_of_modes(bottom_modes) == nmodes
+    nmodes = number_of_modes(first(modes))
+    @assert all(number_of_modes.(modes) .== nmodes)
     @assert number_of_modes(free_space_modes) == nmodes
     @assert wavelength > 0
-    nlayers = length(layer_modes)
-    @assert length(layer_thicknesses) == nlayers
+    @assert length(thicknesses) == length(modes)
 
-    Sg = compute_top_scattering_matrix(top_modes, free_space_modes)
-    for (lt, lm) in zip(layer_thicknesses, layer_modes)
+    Sg = compute_top_scattering_matrix(first(modes), free_space_modes)
+    for (lt, lm) in zip(thicknesses[(begin + 1):(end - 1)], modes[(begin + 1):(end - 1)])
         S = compute_symmetric_scattering_matrix(lm, free_space_modes, wavelength, lt)
         Sg = star_product(Sg, S)
     end
-    S = compute_bottom_scattering_matrix(free_space_modes, bottom_modes)
+    S = compute_bottom_scattering_matrix(free_space_modes, last(modes))
     Sg = star_product(Sg, S)
     return Sg
 end
 
 """
-    function compute_symmetric_scattering_matrix
+    function compute_symmetric_scattering_matrix(
+        layer_modes, free_space_modes, wavelength, layer_thickness
+    )
 
 Compute the scattering matrix associated to an RCWA layer wedged between two
 empty media.
@@ -170,6 +167,7 @@ empty media.
 # Arguments
 
 - `layer_modes::LayerModes`: Modes associated to the RCWA layer.
+- `free_space_modes::LayerModes`: Modes associated to free space.
 - `wavelength::Real`: Wavelength of the incoming light.
 - `layer_thickness::Real`: Thickness of the RCWA layer.
 """
@@ -213,7 +211,7 @@ function _compute_symmetric_scattering_matrix(
 end
 
 """
-    function compute_top_scattering_matrix(top_modes)
+    function compute_top_scattering_matrix(top_modes, free_space_modes)
 
 Compute the scattering matrix between top (reflective) homogeneous medium and an
 empty medium. Equivalently, it may be viewed as a general scattering matrix in
@@ -222,6 +220,7 @@ the special case where the thickness of the RCWA layer is zero.
 # Arguments
 
 - `top_modes::LayerModes`: Modes associated to the top homogeneous medium.
+- `free_space_modes::LayerModes`: Modes associated to free space.
 """
 function compute_top_scattering_matrix(
     top_modes::LayerModes,
@@ -237,7 +236,7 @@ function compute_top_scattering_matrix(
 end
 
 """
-    function compute_bottom_scattering_matrix(bottom_modes)
+    function compute_bottom_scattering_matrix(free_space_modes, bottom_modes)
 
 Compute the scattering matrix between bottom (transmissive) homogeneous medium
 and an empty medium. Equivalently, it may be viewed as a general scattering
@@ -245,6 +244,7 @@ matrix in the special case where the thickness of the RCWA layer is zero.
 
 # Arguments
 
+- `free_space_modes::LayerModes`: Modes associated to free space.
 - `bottom_modes::LayerModes`: Modes associated to the bottom homogeneous medium.
 """
 function compute_bottom_scattering_matrix(

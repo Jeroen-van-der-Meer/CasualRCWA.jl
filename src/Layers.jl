@@ -58,8 +58,8 @@ function Layer(nk::AbstractMatrix{<:Number})
     return Layer(eps, mu)
 end
 
-HomogeneousLayer(eps::Number, mu::Number) = Layer([eps;;], [mu;;])
-HomogeneousLayer(nk::Number) = Layer([nk;;])
+Layer(eps::Number, mu::Number) = Layer([eps;;], [mu;;])
+Layer(nk::Number) = Layer([nk;;])
 
 is_homogeneous(layer::Layer) = (length(unique(layer.eps)) == 1) &&
     (length(unique(layer.mu)) == 1)
@@ -72,7 +72,7 @@ prepared for use in RCWA computation. Specifically, ε and μ have been Fourier
 transformed, and its Fourier coefficient have been rearranged in a convolution
 matrix format which is convenient for efficiently performing RCWA.
 
-# Arguments
+# Properties
 
 - `conv_eps::BTTB`: Convolved electric permittivity.
 - `conv_mu::BTTB`: Convolved magnetic permeability.

@@ -1,5 +1,5 @@
 """
-    struct IncomingWave
+    struct Source
 
 Describes incoming wave in a vacuum.
 
@@ -10,12 +10,12 @@ Describes incoming wave in a vacuum.
 - `wavelength::Float64`: Wavelength in whatever units you like so long as you're
   being consistent.
 """
-struct IncomingWave
+struct Source
     azimuthalAngle::Float64 # ϕ
     elevationAngle::Float64 # θ
     wavelength::Float64 # λ
 
-    function IncomingWave(
+    function Source(
         azimuthal_angle::Number,
         elevation_angle::Number,
         wavelength::Number
@@ -23,6 +23,10 @@ struct IncomingWave
         @assert wavelength > 0
         return new(azimuthal_angle, elevation_angle, wavelength)
     end
+end
+
+function Source(wavelength::Number)
+    return Source(0.0, 0.0, wavelength)
 end
 
 """
@@ -33,7 +37,7 @@ Wave vectors presented in a shape convenient for subsequent simulation steps.
 # Properties
 
 - `waveVectorsX::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in X.
-- `waveVectorsY::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in X.
+- `waveVectorsY::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in Y.
 - `waveVectorsTop::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in
   reflection region.
 - `waveVectorsBottom::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in
@@ -47,8 +51,8 @@ struct PreparedWaveVectors
 end
 
 """
-    function prepare_wave_vector(
-        incoming_wave,
+    function prepare_wave_vectors(
+        source,
         top_medium,
         bottom_medium,
         period,
@@ -60,7 +64,7 @@ steps.
 
 # Arguments
 
-- `incoming_wave::IncomingWave`: Incoming wave as described in a vacuum.
+- `source::Source`: Incoming wave as described in a vacuum.
 - `top_medium::Layer`: Homogeneous reflection region.
 - `bottom_medium::Layer`: Homogeneous transmission region.
 - `period::Tuple{<:Real, <:Real}`: Periodicity, or equivalently, size of your
@@ -69,7 +73,7 @@ steps.
   used in your RCWA simulation.
 """
 function prepare_wave_vectors(
-    incoming_wave::IncomingWave,
+    source::Source,
     top_medium::Layer,
     bottom_medium::Layer,
     period::Tuple{<:Real, <:Real},
@@ -80,14 +84,14 @@ function prepare_wave_vectors(
     @assert (period[1] > 0) && (period[2] > 0)
     @assert (number_of_harmonics[1] > 0) && (number_of_harmonics[2] > 0)
     
-    ϕ = incoming_wave.azimuthalAngle
-    θ = incoming_wave.elevationAngle
-    λ = incoming_wave.wavelength
+    ϕ = source.azimuthalAngle
+    θ = source.elevationAngle
+    λ = source.wavelength
   
     P, Q = number_of_harmonics
     eps_top = top_medium.eps[1, 1]
     mu_top = top_medium.mu[1, 1]
-    n_top = sqrt(eps_top * mu_top) # FIXME: Is this correct?
+    n_top = sqrt(eps_top * mu_top)
     eps_bottom = bottom_medium.eps[1, 1]
     mu_bottom = bottom_medium.mu[1, 1]
 

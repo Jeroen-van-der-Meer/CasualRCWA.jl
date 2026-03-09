@@ -1,59 +1,58 @@
 """
     struct Stack
 
-A stack of layers sandwiched between two homogeneous half-spaces.
+A stack of layers with associated thicknesses. The first and last layers are
+semi-infinite half-spaces (thickness = `Inf`) and must be homogeneous.
 
 # Properties
 
-- `topMedium::AbstractLayer`: Homogeneous top half-space (reflection region).
-- `layers::Vector{<:AbstractLayer}`: Interior layers (may be patterned).
-- `bottomMedium::AbstractLayer`: Homogeneous bottom half-space (transmission region).
-- `thicknesses::Vector{Float64}`: Thickness of each interior layer.
+- `layers::Vector{<:AbstractLayer}`: All layers, including the top and bottom
+  half-spaces as the first and last elements.
+- `thicknesses::Vector{Float64}`: Thickness of each layer. The first and last
+  elements must be `Inf`.
 - `period::Tuple{Float64, Float64}`: Unit cell size in (X, Y).
 """
 struct Stack
-    topMedium::AbstractLayer
     layers::Vector{<:AbstractLayer}
-    bottomMedium::AbstractLayer
     thicknesses::Vector{Float64}
     period::Tuple{Float64, Float64}
 
     function Stack(
-        top_medium::AbstractLayer,
         layers::AbstractVector{<:AbstractLayer},
-        bottom_medium::AbstractLayer,
         thicknesses::AbstractVector{<:Real},
         period::Tuple{<:Real, <:Real}
     )
-        @assert is_homogeneous(top_medium)
+        @assert length(layers) >= 2
         @assert length(layers) == length(thicknesses)
-        @assert is_homogeneous(bottom_medium)
+        @assert is_homogeneous(first(layers))
+        @assert first(thicknesses) == Inf
+        @assert is_homogeneous(last(layers))
+        @assert last(thicknesses) == Inf
         @assert (period[1] > 0) && (period[2] > 0)
-        return new(top_medium, layers, bottom_medium, thicknesses, period)
+        return new(layers, thicknesses, period)
     end
 end
 
 """
-    struct RCWASettings
+    struct RCWAInput
 
 All parameters needed to run an RCWA simulation.
 
 # Properties
 
-- `incomingWave::IncomingWave`: Incoming wave specification (angles, wavelength).
+- `source::Source`: Incoming wave specification (angles, wavelength).
 - `stack::Stack`: Layer stack including top and bottom half-spaces.
-- `harmonicOrder::Tuple{Int64, Int64}`: Maximum harmonic order (N, M).
-  The simulation includes orders -N..N and -M..M, for a total of (2N+1)(2M+1)
-  harmonics.
+- `order::Tuple{Int64, Int64}`: Maximum harmonic order (N, M). The simulation
+  includes orders -N..N and -M..M, for a total of (2N+1)(2M+1) harmonics.
 """
-struct RCWASettings
-    incomingWave::IncomingWave
+struct RCWAInput
+    source::Source
     stack::Stack
-    harmonicOrder::Tuple{Int64, Int64}
+    order::Tuple{Int64, Int64}
 end
 
 """
-    struct RCWAResult
+    struct RCWAOutput
 
 Result of an RCWA simulation. Holds the global scattering matrix together with
 all metadata needed to extract reflection/transmission coefficients and
@@ -64,63 +63,51 @@ Use `reflection_coefficients`, `transmission_coefficients`, and
 
 # Properties
 
-- `scatteringMatrix::ScatteringMatrix`: Global scattering matrix of the stack.
+- `input::RCWAInput`: Input that was used to produce this output.
 - `waveVectors::PreparedWaveVectors`: Wave vectors for all diffraction orders.
-- `topModes::LayerModes`: Eigenmodes of the top (reflection) half-space.
-- `layerModes::Vector{LayerModes}`: Eigenmodes of each interior layer.
-- `bottomModes::LayerModes`: Eigenmodes of the bottom (transmission) half-space.
-- `input::RCWASettings`: The simulation parameters.
+- `modes::Vector{LayerModes}`: Eigenmodes of each layer (including top and
+  bottom half-spaces as the first and last elements).
+- `scatteringMatrix::ScatteringMatrix`: Global scattering matrix of the stack.
 """
-struct RCWAResult
-    scatteringMatrix::ScatteringMatrix
+struct RCWAOutput
+    input::RCWAInput
     waveVectors::PreparedWaveVectors
-    topModes::LayerModes
-    layerModes::Vector{LayerModes}
-    bottomModes::LayerModes
-    input::RCWASettings
+    modes::Vector{LayerModes}
+    scatteringMatrix::ScatteringMatrix
 end
 
 """
-    RCWA(settings::RCWASettings) -> RCWAResult
+    RCWA(input::RCWAInput) -> RCWAOutput
 
-Run a full RCWA simulation and return an `RCWAResult`.
+Run a full RCWA simulation and return an `RCWAOutput`.
 
 # Arguments
 
-- `settings::RCWASettings`: Simulation parameters including the incoming wave,
-  layer stack, and number of harmonics.
+- `input::RCWAInput`: Simulation parameters including the incoming wave, layer
+  stack, and number of harmonics.
 """
-function RCWA(s::RCWASettings)
-    top_medium = s.stack.topMedium
-    bottom_medium = s.stack.bottomMedium
-    wavelength = s.incomingWave.wavelength
-    PQ = (2 * s.harmonicOrder[1] + 1, 2 * s.harmonicOrder[2] + 1)
+function RCWA(input::RCWAInput)
+    wavelength = input.source.wavelength
+    PQ = (2 * input.order[1] + 1, 2 * input.order[2] + 1)
 
     # Prepare wave vectors
+    top_medium = first(input.stack.layers)
+    bottom_medium = last(input.stack.layers)
     wave_vectors = prepare_wave_vectors(
-        s.incomingWave, top_medium, bottom_medium,
-        s.stack.period, PQ
+        input.source, top_medium, bottom_medium,
+        input.stack.period, PQ
     )
 
-    # Convolve layers
-    top_c    = convolve(top_medium, PQ)
-    bottom_c = convolve(bottom_medium, PQ)
-    empty_c  = convolve(HomogeneousLayer(1.0), PQ)
-    layers_c = [convolve(l, PQ) for l in s.stack.layers]
+    # Convolve layers and compute eigenmodes
+    empty_modes = compute_modes(convolve(Layer(1.0), PQ), wave_vectors)
+    modes = [compute_modes(convolve(l, PQ), wave_vectors) for l in input.stack.layers]
 
-    # Compute eigenmodes
-    top_modes = compute_modes(top_c, wave_vectors)
-    bottom_modes = compute_modes(bottom_c, wave_vectors)
-    empty_modes = compute_modes(empty_c, wave_vectors)
-    layer_modes = [compute_modes(lc, wave_vectors) for lc in layers_c]
-
-    # --- Global scattering matrix ---
+    # Global scattering matrix
     Sg = compute_global_scattering_matrix(
-        top_modes, layer_modes, bottom_modes, empty_modes,
-        wavelength, s.stack.thicknesses
+        modes, empty_modes, wavelength, input.stack.thicknesses
     )
 
-    return RCWAResult(Sg, wave_vectors, top_modes, layer_modes, bottom_modes, s)
+    return RCWAOutput(input, wave_vectors, modes, Sg)
 end
 
 # Build the 2PQ incident source vector for the zeroth harmonic.
@@ -141,49 +128,49 @@ function _source_vector(N::Int64, M::Int64, polarization::Symbol)
 end
 
 """
-    reflection_coefficients(result; polarization = :x) -> (r_x, r_y)
+    reflection_coefficients(output; polarization = :x) -> (r_x, r_y)
 
 Complex reflected field amplitudes per diffraction order, returned as two
 P x Q matrices (one per polarization component).
 """
 function reflection_coefficients(
-    result::RCWAResult;
+    output::RCWAOutput;
     polarization::Symbol = :x,
 )
-    N, M = result.input.harmonicOrder
+    N, M = output.input.order
     P = 2N + 1
     Q = 2M + 1
     PQ = P * Q
     c_inc = _source_vector(N, M, polarization)
-    c_ref = result.scatteringMatrix.S11 * c_inc
+    c_ref = output.scatteringMatrix.S11 * c_inc
     r_x = reshape(c_ref[1:PQ], P, Q)
     r_y = reshape(c_ref[PQ+1:2PQ], P, Q)
     return r_x, r_y
 end
 
 """
-    transmission_coefficients(result; polarization = :x) -> (t_x, t_y)
+    transmission_coefficients(output; polarization = :x) -> (t_x, t_y)
 
 Complex transmitted field amplitudes per diffraction order, returned as two
 P x Q matrices (one per polarization component).
 """
 function transmission_coefficients(
-    result::RCWAResult;
+    output::RCWAOutput;
     polarization::Symbol = :x,
 )
-    N, M = result.input.harmonicOrder
+    N, M = output.input.order
     P = 2N + 1
     Q = 2M + 1
     PQ = P * Q
     c_inc = _source_vector(N, M, polarization)
-    c_trn = result.scatteringMatrix.S21 * c_inc
+    c_trn = output.scatteringMatrix.S21 * c_inc
     t_x = reshape(c_trn[1:PQ], P, Q)
     t_y = reshape(c_trn[PQ+1:2PQ], P, Q)
     return t_x, t_y
 end
 
 """
-    diffraction_efficiencies(result; polarization = :x) -> (DE_ref, DE_trn)
+    diffraction_efficiencies(output; polarization = :x) -> (DE_ref, DE_trn)
 
 Power per diffraction order normalized to the incident power, returned as two
 P x Q real matrices. In the lossless case, `sum(DE_ref) + sum(DE_trn) ≈ 1`.
@@ -194,23 +181,23 @@ plane wave with transverse fields (Ex, Ey) and wave vector (kx, ky, kz) is:
     Sz = Re(1/(kz* μ*)) x [(kz²+kx²)|Ex|² + 2 kx ky Re(Ex Ey*) + (ky²+kz²)|Ey|²]
 """
 function diffraction_efficiencies(
-    result::RCWAResult;
+    output::RCWAOutput;
     polarization::Symbol = :x,
 )
-    N, M = result.input.harmonicOrder
+    N, M = output.input.order
     P = 2N + 1
     Q = 2M + 1
     PQ = P * Q
-    top_mu = result.input.stack.topMedium.mu[1, 1]
-    bottom_mu = result.input.stack.bottomMedium.mu[1, 1]
+    top_mu = first(output.input.stack.layers).mu[1, 1]
+    bottom_mu = last(output.input.stack.layers).mu[1, 1]
 
-    r_x, r_y = reflection_coefficients(result; polarization)
-    t_x, t_y = transmission_coefficients(result; polarization)
+    r_x, r_y = reflection_coefficients(output; polarization)
+    t_x, t_y = transmission_coefficients(output; polarization)
 
-    kx = diag(result.waveVectors.waveVectorsX)
-    ky = diag(result.waveVectors.waveVectorsY)
-    K_top    = diag(result.waveVectors.waveVectorsTop)
-    K_bottom = diag(result.waveVectors.waveVectorsBottom)
+    kx = diag(output.waveVectors.waveVectorsX)
+    ky = diag(output.waveVectors.waveVectorsY)
+    K_top    = diag(output.waveVectors.waveVectorsTop)
+    K_bottom = diag(output.waveVectors.waveVectorsBottom)
 
     zeroth = N + 1 + M * P
 

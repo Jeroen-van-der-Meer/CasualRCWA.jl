@@ -53,16 +53,16 @@ end
     wavelength = 0.02
     elevation_angle = 1.0
     azimuthal_angle = 0.5
-    incoming_wave = IncomingWave(azimuthal_angle, elevation_angle, wavelength)
+    source = Source(azimuthal_angle, elevation_angle, wavelength)
 
-    top_medium = HomogeneousLayer(2.0, 1.0)
-    bottom_medium = HomogeneousLayer(9.0, 1.0)
+    top_medium = Layer(2.0, 1.0)
+    bottom_medium = Layer(9.0, 1.0)
     period = (0.0175, 0.015)
 
     number_of_harmonics = (3, 3)
 
     prepared_wave_vectors = RCWAForRetards.prepare_wave_vectors(
-        incoming_wave,
+        source,
         top_medium,
         bottom_medium,
         period,
@@ -266,13 +266,13 @@ end
 @testset "Homogeneous layer eigenmodes" begin
     # For a homogeneous medium, eigenvectors should be the identity and
     # eigenvalues should be analytically determined by the dispersion relation.
-    incoming = IncomingWave(0.0, 0.0, 532.0)
-    top = HomogeneousLayer(1.0)
-    bottom = HomogeneousLayer(1.0)
+    incoming = Source(0.0, 0.0, 532.0)
+    top = Layer(1.0)
+    bottom = Layer(1.0)
     nh = (3, 3)
     wv = RCWAForRetards.prepare_wave_vectors(incoming, top, bottom, (3200.0, 100.0), nh)
 
-    empty_c = RCWAForRetards.convolve(HomogeneousLayer(1.0), nh)
+    empty_c = RCWAForRetards.convolve(Layer(1.0), nh)
     modes = RCWAForRetards.compute_modes(empty_c, wv)
 
     PQ = prod(nh)
@@ -303,13 +303,13 @@ end
     @testset "Normal incidence" begin
         # R = |(n₁ - n₂)/(n₁ + n₂)|²
         for n2 in [1.5, 2.0, 4.0]
-            settings = RCWASettings(
-                IncomingWave(0.0, 0.0, 532.0),
-                Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(n2),
-                      Float64[], (3200.0, 100.0)),
+            input = RCWAInput(
+                Source(0.0, 0.0, 532.0),
+                Stack([Layer(1.0), Layer(n2)],
+                      [Inf, Inf], (3200.0, 100.0)),
                 (N, M)
             )
-            result = RCWA(settings)
+            result = RCWA(input)
             DE_ref, DE_trn = diffraction_efficiencies(result)
 
             R_fresnel = abs((1.0 - n2) / (1.0 + n2))^2
@@ -343,22 +343,22 @@ end
             r_s = (n1 * cos_i - n2 * cos_t) / (n1 * cos_i + n2 * cos_t)
             r_p = (n2 * cos_i - n1 * cos_t) / (n2 * cos_i + n1 * cos_t)
 
-            settings = RCWASettings(
-                IncomingWave(0.0, θ_i, 532.0),
-                Stack(HomogeneousLayer(n1), Layer[], HomogeneousLayer(n2),
-                      Float64[], (3200.0, 100.0)),
+            input = RCWAInput(
+                Source(0.0, θ_i, 532.0),
+                Stack([Layer(n1), Layer(n2)],
+                      [Inf, Inf], (3200.0, 100.0)),
                 (N, M)
             )
 
             # s-polarization (TE, :y)
-            DE_ref_s, DE_trn_s = diffraction_efficiencies(RCWA(settings);
+            DE_ref_s, DE_trn_s = diffraction_efficiencies(RCWA(input);
                                                           polarization = :y)
             R_s = abs(r_s)^2
             @test DE_ref_s[zeroth_p, zeroth_q] ≈ R_s atol = 1e-10
             @test sum(DE_ref_s) + sum(DE_trn_s) ≈ 1.0 atol = 1e-10
 
             # p-polarization (TM, :x)
-            DE_ref_p, DE_trn_p = diffraction_efficiencies(RCWA(settings);
+            DE_ref_p, DE_trn_p = diffraction_efficiencies(RCWA(input);
                                                           polarization = :x)
             R_p = abs(r_p)^2
             @test DE_ref_p[zeroth_p, zeroth_q] ≈ R_p atol = 1e-10
@@ -392,13 +392,13 @@ end
         (1.5, 1.0, 0.0, 0.4),
         (1.0, 1.5, 0.6, 0.3) # Bonus test: non-zero azimuthal angle
     ]
-        settings = RCWASettings(
-            IncomingWave(ϕ, θ_i, λ),
-            Stack(HomogeneousLayer(n1), Layer[], HomogeneousLayer(n2),
-                  Float64[], (3200.0, 100.0)),
+        input = RCWAInput(
+            Source(ϕ, θ_i, λ),
+            Stack([Layer(n1), Layer(n2)],
+                  [Inf, Inf], (3200.0, 100.0)),
             (N, M)
         )
-        result = RCWA(settings)
+        result = RCWA(input)
         wv = result.waveVectors
 
         kx = diag(wv.waveVectorsX)
@@ -429,36 +429,36 @@ end
     N, M = 3, 1
 
     # Homogeneous: "trivial" case.
-    settings = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(n_glass),
-              Float64[], (3200.0, 100.0)),
+    input = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(n_glass)],
+              [Inf, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    DE_ref, DE_trn = diffraction_efficiencies(RCWA(settings))
+    DE_ref, DE_trn = diffraction_efficiencies(RCWA(input))
     @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-10
 
     # Patterned lossless grating.
     pattern = _make_mark_pattern(n_glass, resolution)
-    settings = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_glass),
-              [200.0], (3200.0, 100.0)),
+    input = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(pattern), Layer(n_glass)],
+              [Inf, 200.0, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    DE_ref, DE_trn = diffraction_efficiencies(RCWA(settings))
+    DE_ref, DE_trn = diffraction_efficiencies(RCWA(input))
     # The tolerance is limited by harmonic truncation, not a bug.
     @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 0.05
 
     # Higher refractive index contrast. Energy should not exceed 1.
     pattern = _make_mark_pattern(4.0 - 0.0im, resolution)
-    settings = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(4.0),
-              [200.0], (3200.0, 100.0)),
+    input = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(pattern), Layer(4.0)],
+              [Inf, 200.0, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    DE_ref, DE_trn = diffraction_efficiencies(RCWA(settings))
+    DE_ref, DE_trn = diffraction_efficiencies(RCWA(input))
     @test sum(DE_ref) + sum(DE_trn) <= 1.01
     @test sum(DE_ref) + sum(DE_trn) > 0.80
 end
@@ -473,21 +473,21 @@ end
     zeroth_q = M + 1
     pattern = _make_mark_pattern(n_Si, resolution)
 
-    settings_thin = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_Si),
-              [0.01], (3200.0, 100.0)),
+    input_thin = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(pattern), Layer(n_Si)],
+              [Inf, 0.01, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    DE_ref_thin, DE_trn_thin = diffraction_efficiencies(RCWA(settings_thin))
+    DE_ref_thin, DE_trn_thin = diffraction_efficiencies(RCWA(input_thin))
 
-    settings_bare = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(n_Si),
-              Float64[], (3200.0, 100.0)),
+    input_bare = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(n_Si)],
+              [Inf, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    DE_ref_bare, DE_trn_bare = diffraction_efficiencies(RCWA(settings_bare))
+    DE_ref_bare, DE_trn_bare = diffraction_efficiencies(RCWA(input_bare))
 
     # Zeroth-order should be very close to the bare interface.
     @test DE_ref_thin[zeroth_p, zeroth_q] ≈ DE_ref_bare[zeroth_p, zeroth_q] atol = 1e-3
@@ -505,13 +505,13 @@ end
     zeroth_q = M + 1
     pattern = n_lossy * ones(ComplexF64, resolution, resolution)
 
-    settings = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_lossy),
-              [1e6], (3200.0, 100.0)),
+    input = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(pattern), Layer(n_lossy)],
+              [Inf, 1e6, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    result = RCWA(settings)
+    result = RCWA(input)
     DE_ref, DE_trn = diffraction_efficiencies(result)
 
     # Total transmission should be essentially zero.
@@ -536,38 +536,36 @@ end
     pattern = _make_mark_pattern(n_Si, resolution)
     mark = Layer(pattern)
 
-    settings_single = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [mark], HomogeneousLayer(n_Si),
-              [d], (3200.0, 100.0)),
+    input_single = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), mark, Layer(n_Si)],
+              [Inf, d, Inf], (3200.0, 100.0)),
         (N, M)
     )
     DE_ref_single, DE_trn_single = diffraction_efficiencies(
-        RCWA(settings_single))
+        RCWA(input_single))
 
-    settings_split = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [mark, mark], HomogeneousLayer(n_Si),
-              [d / 2, d / 2], (3200.0, 100.0)),
+    input_split = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), mark, mark, Layer(n_Si)],
+              [Inf, d / 2, d / 2, Inf], (3200.0, 100.0)),
         (N, M)
     )
     DE_ref_split, DE_trn_split = diffraction_efficiencies(
-        RCWA(settings_split))
+        RCWA(input_split))
 
     # If I add a redundant homogeneous silicon layer below the mark, the result
     # should still be the same.
-    settings_redundant_layer = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
+    input_redundant_layer = RCWAInput(
+        Source(0.0, 0.0, 532.0),
         Stack(
-            HomogeneousLayer(1.0),
-            [mark, HomogeneousLayer(n_Si)],
-            HomogeneousLayer(n_Si),
-            [d, 100.0], (3200.0, 100.0)
+            [Layer(1.0), mark, Layer(n_Si), Layer(n_Si)],
+            [Inf, d, 100.0, Inf], (3200.0, 100.0)
         ),
         (N, M)
     )
     DE_ref_rdt_layer, DE_trn_rdt_layer = diffraction_efficiencies(
-        RCWA(settings_redundant_layer))
+        RCWA(input_redundant_layer))
 
     @test DE_ref_single ≈ DE_ref_split atol = 1e-10
     @test DE_trn_single ≈ DE_trn_split atol = 1e-10
@@ -585,24 +583,24 @@ end
     N, M = 3, 1
     period = (3200.0, 100.0)
 
-    settings_orig = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_Si),
-              [158.0], period),
+    input_orig = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(pattern), Layer(n_Si)],
+              [Inf, 158.0, Inf], period),
         (N, M)
     )
-    DE_ref_orig, DE_trn_orig = diffraction_efficiencies(RCWA(settings_orig))
+    DE_ref_orig, DE_trn_orig = diffraction_efficiencies(RCWA(input_orig))
 
     # Doubled unit cell: tile in X (columns), double period and harmonics.
     doubled_pattern = hcat(pattern, pattern)
     N2 = 2N   # Same maximum spatial frequency (doubled period → halved k-spacing)
-    settings_doubled = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [Layer(doubled_pattern)], HomogeneousLayer(n_Si),
-              [158.0], (2 * period[1], period[2])),
+    input_doubled = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(doubled_pattern), Layer(n_Si)],
+              [Inf, 158.0, Inf], (2 * period[1], period[2])),
         (N2, M)
     )
-    DE_ref_doubled, DE_trn_doubled = diffraction_efficiencies(RCWA(settings_doubled))
+    DE_ref_doubled, DE_trn_doubled = diffraction_efficiencies(RCWA(input_doubled))
 
     P = 2N + 1
     P2 = 2N2 + 1
@@ -652,13 +650,13 @@ end
 
     @testset "Normal incidence" begin
         for d in [50.0, 133.0, 266.0, 500.0]
-            settings = RCWASettings(
-                IncomingWave(0.0, 0.0, λ),
-                Stack(HomogeneousLayer(n1), [HomogeneousLayer(n2)], HomogeneousLayer(n3),
-                      [d], (3200.0, 100.0)),
+            input = RCWAInput(
+                Source(0.0, 0.0, λ),
+                Stack([Layer(n1), Layer(n2), Layer(n3)],
+                      [Inf, d, Inf], (3200.0, 100.0)),
                 (N, M)
             )
-            result = RCWA(settings)
+            result = RCWA(input)
 
             # Analytical Fabry-Perot (negative sign convention: exp(-ikz)).
             r12 = (n1 - n2) / (n1 + n2)
@@ -696,13 +694,13 @@ end
             β = 2π * n2 * cos_2 * d / λ
             X2 = exp(-2im * β)
 
-            settings = RCWASettings(
-                IncomingWave(0.0, θ_i, λ),
-                Stack(HomogeneousLayer(n1), [HomogeneousLayer(n2)],
-                      HomogeneousLayer(n3), [d], (3200.0, 100.0)),
+            input = RCWAInput(
+                Source(0.0, θ_i, λ),
+                Stack([Layer(n1), Layer(n2), Layer(n3)],
+                      [Inf, d, Inf], (3200.0, 100.0)),
                 (N, M)
             )
-            result = RCWA(settings)
+            result = RCWA(input)
 
             # s-polarization (TE): standard Fresnel interface coefficients.
             r12_s = (n1 * cos_1 - n2 * cos_2) / (n1 * cos_1 + n2 * cos_2)
@@ -740,22 +738,22 @@ end
     pattern = _make_mark_pattern(n_glass, resolution)
 
     # Forward: air -> patterned glass layer -> glass substrate.
-    settings_fwd = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_glass),
-              [200.0], (3200.0, 100.0)),
+    input_fwd = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(pattern), Layer(n_glass)],
+              [Inf, 200.0, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    DE_ref_fwd, DE_trn_fwd = diffraction_efficiencies(RCWA(settings_fwd))
+    DE_ref_fwd, DE_trn_fwd = diffraction_efficiencies(RCWA(input_fwd))
 
     # Backward: glass -> same patterned layer -> air (swap half-spaces).
-    settings_bwd = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(n_glass), [Layer(pattern)], HomogeneousLayer(1.0),
-              [200.0], (3200.0, 100.0)),
+    input_bwd = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(n_glass), Layer(pattern), Layer(1.0)],
+              [Inf, 200.0, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    DE_ref_bwd, DE_trn_bwd = diffraction_efficiencies(RCWA(settings_bwd))
+    DE_ref_bwd, DE_trn_bwd = diffraction_efficiencies(RCWA(input_bwd))
 
     # Total transmitted power should match (reciprocity, truncation-limited).
     @test sum(DE_trn_fwd) ≈ sum(DE_trn_bwd) atol = 0.02
@@ -784,13 +782,13 @@ end
 
     pattern = _make_mark_pattern(n_space, resolution)
 
-    settings = RCWASettings(
-        IncomingWave(0.0, 0.0, λ),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(1.0),
-              [d], (50000.0, 100.0)),
+    input = RCWAInput(
+        Source(0.0, 0.0, λ),
+        Stack([Layer(1.0), Layer(pattern), Layer(1.0)],
+              [Inf, d, Inf], (50000.0, 100.0)),
         (N, M)
     )
-    result = RCWA(settings)
+    result = RCWA(input)
     t_x, _ = transmission_coefficients(result)
 
     zeroth_p = N + 1
@@ -838,21 +836,21 @@ end
     Δy = Λy / 8
     shifted_pattern = circshift(pattern, (-(resolution ÷ 8), resolution ÷ 4))
 
-    settings_orig = RCWASettings(
-        IncomingWave(0.0, 0.0, λ),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_Cu),
-              [d], (Λx, Λy)),
+    input_orig = RCWAInput(
+        Source(0.0, 0.0, λ),
+        Stack([Layer(1.0), Layer(pattern), Layer(n_Cu)],
+              [Inf, d, Inf], (Λx, Λy)),
         (N, M)
     )
-    settings_shifted = RCWASettings(
-        IncomingWave(0.0, 0.0, λ),
-        Stack(HomogeneousLayer(1.0), [Layer(shifted_pattern)], HomogeneousLayer(n_Cu),
-              [d], (Λx, Λy)),
+    input_shifted = RCWAInput(
+        Source(0.0, 0.0, λ),
+        Stack([Layer(1.0), Layer(shifted_pattern), Layer(n_Cu)],
+              [Inf, d, Inf], (Λx, Λy)),
         (N, M)
     )
 
-    result_orig = RCWA(settings_orig)
-    result_shifted = RCWA(settings_shifted)
+    result_orig = RCWA(input_orig)
+    result_shifted = RCWA(input_shifted)
 
     r_x_orig, r_y_orig = reflection_coefficients(result_orig)
     r_x_shifted, r_y_shifted = reflection_coefficients(result_shifted)
@@ -904,13 +902,13 @@ end
     Q = 2M + 1
     pattern = _make_mark_pattern(n_Si, resolution)
 
-    settings = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_Si),
-              [158.0], (3200.0, 100.0)),
+    input = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(pattern), Layer(n_Si)],
+              [Inf, 158.0, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    result = RCWA(settings)
+    result = RCWA(input)
 
     # Coefficients should be P×Q matrices.
     r_x, r_y = reflection_coefficients(result)
@@ -929,21 +927,21 @@ end
 @testset "Magnetic half-space" begin
     # Specifying (eps, mu) should be equivalent to the n+ik shorthand when μ=1.
     N, M = 1, 1
-    settings_nk = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(2.0),
-              Float64[], (3200.0, 100.0)),
+    input_nk = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(2.0)],
+              [Inf, Inf], (3200.0, 100.0)),
         (N, M)
     )
-    settings_em = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(4.0, 1.0),
-              Float64[], (3200.0, 100.0)),
+    input_em = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(1.0), Layer(4.0, 1.0)],
+              [Inf, Inf], (3200.0, 100.0)),
         (N, M)
     )
 
-    DE_ref_nk, DE_trn_nk = diffraction_efficiencies(RCWA(settings_nk))
-    DE_ref_em, DE_trn_em = diffraction_efficiencies(RCWA(settings_em))
+    DE_ref_nk, DE_trn_nk = diffraction_efficiencies(RCWA(input_nk))
+    DE_ref_em, DE_trn_em = diffraction_efficiencies(RCWA(input_em))
     @test DE_ref_nk ≈ DE_ref_em atol = 1e-10
     @test DE_trn_nk ≈ DE_trn_em atol = 1e-10
 end
@@ -953,18 +951,18 @@ end
     # corresponding symmetry in the scattering matrices.
 
     nk = [2-1im 1; 1 1]
-    air = HomogeneousLayer(1.0)
+    air = Layer(1.0)
     layer = Layer(nk)
 
     thickness = 100
     cell_size = (1000, 1000)
-    
-    wave = IncomingWave(0, 0, 532)
-    stack = Stack(air, [layer], air, [thickness], cell_size)
+
+    wave = Source(0, 0, 532)
+    stack = Stack([air, layer, air], [Inf, thickness, Inf], cell_size)
     N, M = 3, 3
 
-    settings = RCWASettings(wave, stack, (N, M))
-    results = RCWA(settings)
+    input = RCWAInput(wave, stack, (N, M))
+    results = RCWA(input)
 
     de_ref_X, de_trn_X = diffraction_efficiencies(results; polarization = :x)
     de_ref_Y, de_trn_Y = diffraction_efficiencies(results; polarization = :y)
@@ -974,13 +972,13 @@ end
     # Input size of matrices shouldn't matter for outcome.
 
     layer_repmat = Layer(repeat(nk; inner = (10, 10)))
-    stack_repmat = Stack(air, [layer_repmat], air, [thickness], cell_size)
+    stack_repmat = Stack([air, layer_repmat, air], [Inf, thickness, Inf], cell_size)
 
-    settings_repmat = RCWASettings(wave, stack_repmat, (N, M))
-    
-    results_repmat = RCWA(settings_repmat)
+    input_repmat = RCWAInput(wave, stack_repmat, (N, M))
 
-    de_ref_X_repmat, de_trn_X_repmat = 
+    results_repmat = RCWA(input_repmat)
+
+    de_ref_X_repmat, de_trn_X_repmat =
         diffraction_efficiencies(results_repmat; polarization = :x)
 
     @test de_ref_X ≈ de_ref_X_repmat
@@ -995,20 +993,20 @@ end
 
     n_Si = 4.149970008756567 - 0.04395052539404554im
     n_Air = 1.0
-    top_medium = HomogeneousLayer(n_Air)
+    top_medium = Layer(n_Air)
 
     # 50% duty cycle mark (columns = X)
     mark = n_Si * ones(ComplexF64, resolution, resolution)
     mark[:, (resolution ÷ 4 + 1):(3 * resolution ÷ 4)] .= n_Air
 
-    settings = RCWASettings(
-        IncomingWave(0.0, 0.0, 532.0),
-        Stack(HomogeneousLayer(n_Air), [Layer(mark)], HomogeneousLayer(n_Si),
-              [158.0], (3200.0, 100.0)),
+    input = RCWAInput(
+        Source(0.0, 0.0, 532.0),
+        Stack([Layer(n_Air), Layer(mark), Layer(n_Si)],
+              [Inf, 158.0, Inf], (3200.0, 100.0)),
         (3, 1)
     )
 
-    r = RCWA(settings)
+    r = RCWA(input)
 
     rc_x, rc_y = reflection_coefficients(r; polarization=:y)
     round.(rc_y; digits = 9)
