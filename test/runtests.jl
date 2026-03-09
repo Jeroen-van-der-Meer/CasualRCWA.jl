@@ -293,35 +293,127 @@ function _make_mark_pattern(n_material, resolution)
 end
 
 @testset "Fresnel reflection" begin
-    # A bare air-glass interface (no intermediate layers) should match the
-    # Fresnel equation R = |(n₁ - n₂)/(n₁ + n₂)|² at normal incidence.
     P, Q = 7, 3
     zeroth_p = P ÷ 2 + 1
     zeroth_q = Q ÷ 2 + 1
 
-    for n2 in [1.5, 2.0, 4.0]
+    @testset "Normal incidence" begin
+        # R = |(n₁ - n₂)/(n₁ + n₂)|²
+        for n2 in [1.5, 2.0, 4.0]
+            settings = RCWASettings(
+                IncomingWave(0.0, 0.0, 532.0),
+                Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(n2),
+                      Float64[], (3200.0, 100.0)),
+                (P, Q)
+            )
+            result = RCWA(settings)
+            DE_ref, DE_trn = diffraction_efficiencies(result)
+
+            R_fresnel = abs((1.0 - n2) / (1.0 + n2))^2
+            T_fresnel = 1.0 - R_fresnel
+
+            @test DE_ref[zeroth_p, zeroth_q] ≈ R_fresnel atol = 1e-10
+            @test DE_trn[zeroth_p, zeroth_q] ≈ T_fresnel atol = 1e-10
+
+            # No power in non-zeroth orders (no grating hence no diffraction).
+            for q in 1:Q, p in 1:P
+                if (p, q) != (zeroth_p, zeroth_q)
+                    @test abs(DE_ref[p, q]) < 1e-12
+                    @test abs(DE_trn[p, q]) < 1e-12
+                end
+            end
+        end
+    end
+
+    @testset "Oblique incidence (ϕ = 0)" begin
+        # With ϕ=0 the plane of incidence is x-z. Then:
+        # - polarization :y = s-pol (TE)
+        # - polarization :x → p-pol (TM)
+        # Fresnel formulas:
+        # - r_s = (n₁ cos θ_i - n₂ cos θ_t) / (n₁ cos θ_i + n₂ cos θ_t)
+        # - r_p = (n₂ cos θ_i - n₁ cos θ_t) / (n₂ cos θ_i + n₁ cos θ_t)
+        n1 = 1.0
+        for (n2, θ_i) in [(1.5, 0.3), (2.0, 0.5), (4.0, 0.15), (1.5, 1.0)]
+            cos_i = cos(θ_i)
+            cos_t = sqrt(1 - (n1 / n2 * sin(θ_i))^2)   # complex if TIR
+
+            r_s = (n1 * cos_i - n2 * cos_t) / (n1 * cos_i + n2 * cos_t)
+            r_p = (n2 * cos_i - n1 * cos_t) / (n2 * cos_i + n1 * cos_t)
+
+            settings = RCWASettings(
+                IncomingWave(0.0, θ_i, 532.0),
+                Stack(HomogeneousLayer(n1), Layer[], HomogeneousLayer(n2),
+                      Float64[], (3200.0, 100.0)),
+                (P, Q)
+            )
+
+            # s-polarization (TE, :y)
+            DE_ref_s, DE_trn_s = diffraction_efficiencies(RCWA(settings);
+                                                          polarization = :y)
+            R_s = abs(r_s)^2
+            @test DE_ref_s[zeroth_p, zeroth_q] ≈ R_s atol = 1e-10
+            @test sum(DE_ref_s) + sum(DE_trn_s) ≈ 1.0 atol = 1e-10
+
+            # p-polarization (TM, :x)
+            DE_ref_p, DE_trn_p = diffraction_efficiencies(RCWA(settings);
+                                                          polarization = :x)
+            R_p = abs(r_p)^2
+            @test DE_ref_p[zeroth_p, zeroth_q] ≈ R_p atol = 1e-10
+            @test sum(DE_ref_p) + sum(DE_trn_p) ≈ 1.0 atol = 1e-10
+
+            # No power in non-zeroth orders.
+            for q in 1:Q, p in 1:P
+                if (p, q) != (zeroth_p, zeroth_q)
+                    @test abs(DE_ref_s[p, q]) < 1e-12
+                    @test abs(DE_ref_p[p, q]) < 1e-12
+                end
+            end
+        end
+    end
+end
+
+@testset "Snell's law" begin
+    # The wave vectors produced by RCWA encode the diffraction angles. For a
+    # bare interface (no grating layers), the zeroth-order transmitted kz must
+    # satisfy Snell's law: n₁ sin θ_i = n₂ sin θ_t. More generally, the
+    # dispersion relation kx² + ky² + kz² = n² must hold for every order in
+    # both half-spaces.
+    P, Q = 7, 3
+    λ = 532.0
+
+    for (n1, n2, ϕ, θ_i) in [
+        (1.0, 1.5, 0.0, 0.3),
+        (1.0, 2.0, 0.0, 0.7),
+        (1.5, 1.0, 0.0, 0.4),
+        (1.0, 1.5, 0.6, 0.3) # Bonus test: non-zero azimuthal angle
+    ]
         settings = RCWASettings(
-            IncomingWave(0.0, 0.0, 532.0),
-            Stack(HomogeneousLayer(1.0), Layer[], HomogeneousLayer(n2),
+            IncomingWave(ϕ, θ_i, λ),
+            Stack(HomogeneousLayer(n1), Layer[], HomogeneousLayer(n2),
                   Float64[], (3200.0, 100.0)),
             (P, Q)
         )
         result = RCWA(settings)
-        DE_ref, DE_trn = diffraction_efficiencies(result)
+        wv = result.waveVectors
 
-        R_fresnel = abs((1.0 - n2) / (1.0 + n2))^2
-        T_fresnel = 1.0 - R_fresnel
+        kx = diag(wv.waveVectorsX)
+        ky = diag(wv.waveVectorsY)
+        kz_top = diag(wv.waveVectorsTop)
+        kz_bot = diag(wv.waveVectorsBottom)
 
-        @test DE_ref[zeroth_p, zeroth_q] ≈ R_fresnel atol = 1e-10
-        @test DE_trn[zeroth_p, zeroth_q] ≈ T_fresnel atol = 1e-10
+        # Dispersion relation in both media: kx² + ky² + kz² = εμ = n².
+        @test kx.^2 .+ ky.^2 .+ kz_top.^2 ≈ fill(complex(n1^2), P * Q) atol = 1e-10
+        @test kx.^2 .+ ky.^2 .+ kz_bot.^2 ≈ fill(complex(n2^2), P * Q) atol = 1e-10
 
-        # No power in non-zeroth orders (no grating hence no diffraction).
-        for q in 1:Q, p in 1:P
-            if (p, q) != (zeroth_p, zeroth_q)
-                @test abs(DE_ref[p, q]) < 1e-12
-                @test abs(DE_trn[p, q]) < 1e-12
-            end
-        end
+        # Zeroth-order transverse momenta: kx = n₁ sin θ cos ϕ, ky = n₁ sin θ sin ϕ.
+        zeroth = P ÷ 2 + 1 + (Q ÷ 2) * P
+        @test real(kx[zeroth]) ≈ n1 * sin(θ_i) * cos(ϕ) atol = 1e-10
+        @test real(ky[zeroth]) ≈ n1 * sin(θ_i) * sin(ϕ) atol = 1e-10
+
+        # Snell's law for the zeroth transmitted order: kz = sqrt(n² - kx² - ky²).
+        kx0 = n1 * sin(θ_i) * cos(ϕ)
+        ky0 = n1 * sin(θ_i) * sin(ϕ)
+        @test real(kz_bot[zeroth]) ≈ sqrt(n2^2 - kx0^2 - ky0^2) atol = 1e-10
     end
 end
 
@@ -548,36 +640,82 @@ end
     zeroth_p = P ÷ 2 + 1
     zeroth_q = Q ÷ 2 + 1
 
-    for d in [50.0, 133.0, 266.0, 500.0]
-        settings = RCWASettings(
-            IncomingWave(0.0, 0.0, λ),
-            Stack(HomogeneousLayer(n1), [HomogeneousLayer(n2)], HomogeneousLayer(n3),
-                  [d], (3200.0, 100.0)),
-            (P, Q)
-        )
-        result = RCWA(settings)
+    @testset "Normal incidence" begin
+        for d in [50.0, 133.0, 266.0, 500.0]
+            settings = RCWASettings(
+                IncomingWave(0.0, 0.0, λ),
+                Stack(HomogeneousLayer(n1), [HomogeneousLayer(n2)], HomogeneousLayer(n3),
+                      [d], (3200.0, 100.0)),
+                (P, Q)
+            )
+            result = RCWA(settings)
 
-        # Analytical Fabry-Perot (negative sign convention: exp(-ikz)).
-        r12 = (n1 - n2) / (n1 + n2)
-        r23 = (n2 - n3) / (n2 + n3)
-        β = 2π * n2 * d / λ
-        r_fp = (r12 + r23 * exp(-2im * β)) / (1 + r12 * r23 * exp(-2im * β))
-        R_fp = abs(r_fp)^2
-        T_fp = 1.0 - R_fp
+            # Analytical Fabry-Perot (negative sign convention: exp(-ikz)).
+            r12 = (n1 - n2) / (n1 + n2)
+            r23 = (n2 - n3) / (n2 + n3)
+            β = 2π * n2 * d / λ
+            r_fp = (r12 + r23 * exp(-2im * β)) / (1 + r12 * r23 * exp(-2im * β))
+            R_fp = abs(r_fp)^2
+            T_fp = 1.0 - R_fp
 
-        # Complex reflection coefficient should match exactly (all modes are
-        # homogeneous, so no truncation error).
-        r_x, r_y = reflection_coefficients(result)
-        @test r_x[zeroth_p, zeroth_q] ≈ r_fp atol = 1e-10
-        @test abs(r_y[zeroth_p, zeroth_q]) < 1e-12
+            # Complex reflection coefficient should match exactly (all modes are
+            # homogeneous, so no truncation error).
+            r_x, r_y = reflection_coefficients(result)
+            @test r_x[zeroth_p, zeroth_q] ≈ r_fp atol = 1e-10
+            @test abs(r_y[zeroth_p, zeroth_q]) < 1e-12
 
-        # Power: diffraction efficiencies.
-        DE_ref, DE_trn = diffraction_efficiencies(result)
-        @test DE_ref[zeroth_p, zeroth_q] ≈ R_fp atol = 1e-10
-        @test DE_trn[zeroth_p, zeroth_q] ≈ T_fp atol = 1e-10
+            # Power: diffraction efficiencies.
+            DE_ref, DE_trn = diffraction_efficiencies(result)
+            @test DE_ref[zeroth_p, zeroth_q] ≈ R_fp atol = 1e-10
+            @test DE_trn[zeroth_p, zeroth_q] ≈ T_fp atol = 1e-10
 
-        # Energy conservation.
-        @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-10
+            # Energy conservation.
+            @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-10
+        end
+    end
+
+    @testset "Oblique incidence (sign convention test)" begin
+        # Sign conventions for this code (I think):
+        #   s-pol (y-input): r_y = r_s_FP  (standard Fresnel)
+        #   p-pol (x-input): r_x = -r_p_FP (Ex (transverse) flips sign on reflection)
+        # This test ensures we make an even amount of sign errors.
+        for (θ_i, d) in [(0.3, 80.0), (0.5, 133.0), (0.8, 200.0)]
+            cos_1 = cos(θ_i)
+            cos_2 = sqrt(1 - (n1 * sin(θ_i) / n2)^2)
+            cos_3 = sqrt(1 - (n1 * sin(θ_i) / n3)^2)
+            β = 2π * n2 * cos_2 * d / λ
+            X2 = exp(-2im * β)
+
+            settings = RCWASettings(
+                IncomingWave(0.0, θ_i, λ),
+                Stack(HomogeneousLayer(n1), [HomogeneousLayer(n2)],
+                      HomogeneousLayer(n3), [d], (3200.0, 100.0)),
+                (P, Q)
+            )
+            result = RCWA(settings)
+
+            # s-polarization (TE): standard Fresnel interface coefficients.
+            r12_s = (n1 * cos_1 - n2 * cos_2) / (n1 * cos_1 + n2 * cos_2)
+            r23_s = (n2 * cos_2 - n3 * cos_3) / (n2 * cos_2 + n3 * cos_3)
+            r_s_fp = (r12_s + r23_s * X2) / (1 + r12_s * r23_s * X2)
+            _, r_y = reflection_coefficients(result; polarization = :y)
+            @test r_y[zeroth_p, zeroth_q] ≈ r_s_fp atol = 1e-10
+
+            # p-polarization (TM): the RCWA transverse-Ex reflection picks up
+            # a minus sign relative to the standard Fresnel r_p at each
+            # interface, so the total FP reflection is negated.
+            r12_p = (n2 * cos_1 - n1 * cos_2) / (n2 * cos_1 + n1 * cos_2)
+            r23_p = (n3 * cos_2 - n2 * cos_3) / (n3 * cos_2 + n2 * cos_3)
+            r_p_fp = (r12_p + r23_p * X2) / (1 + r12_p * r23_p * X2)
+            r_x, _ = reflection_coefficients(result; polarization = :x)
+            @test r_x[zeroth_p, zeroth_q] ≈ -r_p_fp atol = 1e-10
+
+            # Energy conservation for both polarizations.
+            DE_ref_s, DE_trn_s = diffraction_efficiencies(result; polarization = :y)
+            @test sum(DE_ref_s) + sum(DE_trn_s) ≈ 1.0 atol = 1e-10
+            DE_ref_p, DE_trn_p = diffraction_efficiencies(result; polarization = :x)
+            @test sum(DE_ref_p) + sum(DE_trn_p) ≈ 1.0 atol = 1e-10
+        end
     end
 end
 
@@ -591,7 +729,7 @@ end
     n_glass = 1.5 - 0.0im
     pattern = _make_mark_pattern(n_glass, resolution)
 
-    # Forward: air → patterned glass layer → glass substrate.
+    # Forward: air -> patterned glass layer -> glass substrate.
     settings_fwd = RCWASettings(
         IncomingWave(0.0, 0.0, 532.0),
         Stack(HomogeneousLayer(1.0), [Layer(pattern)], HomogeneousLayer(n_glass),
@@ -600,7 +738,7 @@ end
     )
     DE_ref_fwd, DE_trn_fwd = diffraction_efficiencies(RCWA(settings_fwd))
 
-    # Backward: glass → same patterned layer → air (swap half-spaces).
+    # Backward: glass -> same patterned layer -> air (swap half-spaces).
     settings_bwd = RCWASettings(
         IncomingWave(0.0, 0.0, 532.0),
         Stack(HomogeneousLayer(n_glass), [Layer(pattern)], HomogeneousLayer(1.0),
@@ -790,4 +928,37 @@ end
     DE_ref_em, DE_trn_em = diffraction_efficiencies(RCWA(settings_em))
     @test DE_ref_nk ≈ DE_ref_em atol = 1e-10
     @test DE_trn_nk ≈ DE_trn_em atol = 1e-10
+end
+
+@testset "Mark in silicon" begin
+    # TODO: Explicit match against the reference MATLAB implementation.
+    # see sf_2d_silicon.m example
+    resolution = 1024
+
+    n_Si = 4.149970008756567 - 0.04395052539404554im
+    n_Air = 1.0
+    top_medium = HomogeneousLayer(n_Air)
+
+    # 50% duty cycle mark
+    mark = n_Si * ones(ComplexF64, resolution, resolution)
+    mark[(resolution ÷ 4 + 1):(3 * resolution ÷ 4),:] .= n_Air
+    
+    settings = RCWASettings(
+        IncomingWave(0.0, 0.0, 532.0),
+        Stack(HomogeneousLayer(n_Air), [Layer(mark)], HomogeneousLayer(n_Si),
+              [158.0], (3200.0, 100.0)),
+        (7, 3)
+    )
+
+    r = RCWA(settings)
+
+    rc_x, rc_y = reflection_coefficients(r; polarization=:y)
+    round.(rc_y; digits = 9)
+    # These numbers MATCH (up to signs again -- but in a different way from S1)
+    # with R_ns(:, :, 1) that comes out of Compute_Target_Reflection_Coefficients!
+    
+    rc_x, rc_y = reflection_coefficients(r; polarization=:x)
+    round.(rc_x; digits = 9)
+    # This one somehow matches less... Which is weird to me.
+
 end

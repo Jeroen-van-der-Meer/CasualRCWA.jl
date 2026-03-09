@@ -166,28 +166,57 @@ end
 
 Power per diffraction order normalized to the incident power, returned as two
 P x Q real matrices. In the lossless case, `sum(DE_ref) + sum(DE_trn) ≈ 1`.
+
+The power is computed from the z-component of the Poynting vector, which for a
+plane wave with transverse fields (Ex, Ey) and wave vector (kx, ky, kz) is:
+
+    Sz = Re(1/(kz* μ*)) x [(kz²+kx²)|Ex|² + 2 kx ky Re(Ex Ey*) + (ky²+kz²)|Ey|²]
 """
 function diffraction_efficiencies(
     result::RCWAResult;
     polarization::Symbol = :x,
 )
     P, Q = result.input.numberOfHarmonics
+    PQ = P * Q
     top_mu = result.input.stack.topMedium.mu[1, 1]
     bottom_mu = result.input.stack.bottomMedium.mu[1, 1]
 
     r_x, r_y = reflection_coefficients(result; polarization)
     t_x, t_y = transmission_coefficients(result; polarization)
 
+    kx = diag(result.waveVectors.waveVectorsX)
+    ky = diag(result.waveVectors.waveVectorsY)
     K_top    = diag(result.waveVectors.waveVectorsTop)
     K_bottom = diag(result.waveVectors.waveVectorsBottom)
 
     zeroth = Int(floor(P / 2)) + 1 + Int(floor(Q / 2)) * P
-    kz_inc_over_mu = -K_top[zeroth] / top_mu
 
-    DE_ref = real.(-K_top / top_mu) / real(kz_inc_over_mu) .*
-             (abs.(vec(r_x)).^2 .+ abs.(vec(r_y)).^2)
-    DE_trn = real.(K_bottom / bottom_mu) / real(kz_inc_over_mu) .*
-             (abs.(vec(t_x)).^2 .+ abs.(vec(t_y)).^2)
+    # Incident power (source is a single transverse polarization component).
+    Ex_inc = polarization === :x ? 1.0 : 0.0
+    Ey_inc = polarization === :y ? 1.0 : 0.0
+    Sz_inc = _poynting_z(Ex_inc, Ey_inc, kx[zeroth], ky[zeroth],
+                         -K_top[zeroth], top_mu)
+
+    rx = vec(r_x); ry = vec(r_y)
+    tx = vec(t_x); ty = vec(t_y)
+
+    DE_ref = Vector{Float64}(undef, PQ)
+    DE_trn = Vector{Float64}(undef, PQ)
+    for j in 1:PQ
+        # Reflected wave propagates in -z, so Sz is negative; negate for DE.
+        DE_ref[j] = -_poynting_z(rx[j], ry[j], kx[j], ky[j],
+                                 K_top[j], top_mu) / Sz_inc
+        DE_trn[j] =  _poynting_z(tx[j], ty[j], kx[j], ky[j],
+                                 K_bottom[j], bottom_mu) / Sz_inc
+    end
 
     return reshape(DE_ref, P, Q), reshape(DE_trn, P, Q)
+end
+
+# z-component of the Poynting vector for a plane wave with transverse fields
+# (Ex, Ey) and wave vector (kx, ky, kz) in a medium with permeability μ.
+function _poynting_z(Ex, Ey, kx, ky, kz, μ)
+    return real(((kz^2 + kx^2) * abs(Ex)^2
+               + 2kx * ky * real(Ex * conj(Ey))
+               + (ky^2 + kz^2) * abs(Ey)^2) / conj(kz * μ))
 end

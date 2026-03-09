@@ -9,8 +9,8 @@ periodic layer wedged in between two homogeneous media.
 # Properties
 
 - `S11::Matrix{ComplexF64}`: Reflection in the top medium.
-- `S12::Matrix{ComplexF64}`: Transmission from the top to the bottom medium.
-- `S21::Matrix{ComplexF64}`: Transmission from the bottom to the top medium.
+- `S12::Matrix{ComplexF64}`: Transmission from the bottom to the top medium.
+- `S21::Matrix{ComplexF64}`: Transmission from the top to the bottom medium.
 - `S22::Matrix{ComplexF64}`: Reflection in the bottom medium.
 """
 struct ScatteringMatrix <: AbstractScatteringMatrix
