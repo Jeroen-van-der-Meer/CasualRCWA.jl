@@ -61,10 +61,22 @@ diffraction efficiencies.
 
 Use `reflection_coefficients`, `transmission_coefficients`, and
 `diffraction_efficiencies` to query the result.
+
+# Properties
+
+- `scatteringMatrix::ScatteringMatrix`: Global scattering matrix of the stack.
+- `waveVectors::PreparedWaveVectors`: Wave vectors for all diffraction orders.
+- `topModes::LayerModes`: Eigenmodes of the top (reflection) half-space.
+- `layerModes::Vector{LayerModes}`: Eigenmodes of each interior layer.
+- `bottomModes::LayerModes`: Eigenmodes of the bottom (transmission) half-space.
+- `input::RCWASettings`: The simulation parameters.
 """
 struct RCWAResult
     scatteringMatrix::ScatteringMatrix
     waveVectors::PreparedWaveVectors
+    topModes::LayerModes
+    layerModes::Vector{LayerModes}
+    bottomModes::LayerModes
     input::RCWASettings
 end
 
@@ -108,7 +120,7 @@ function RCWA(s::RCWASettings)
         wavelength, s.stack.thicknesses
     )
 
-    return RCWAResult(Sg, wave_vectors, s)
+    return RCWAResult(Sg, wave_vectors, top_modes, layer_modes, bottom_modes, s)
 end
 
 # Build the 2PQ incident source vector for the zeroth harmonic.

@@ -64,6 +64,7 @@ function compute_modes(
     # The solution to this equation is expressible in terms of the eigenmodes
     # of Ω, so we may precompute these.
     eigenvalues, E_modes = eigen(Ω2)
+    _stabilize_eigenvectors!(eigenvalues, E_modes)
     eigenvalues .= sqrt.(eigenvalues)
 
     # The magnetic fields adhere to a similar wave equation. Its eigenvalues are
@@ -109,6 +110,57 @@ function compute_modes_homogeneous(
     M_modes = Q * Diagonal(1 ./ eigenvalues)
 
     return LayerModes(eigenvalues, E_modes, M_modes)
+end
+
+"""
+Stabilize eigenvectors of nearly-degenerate eigenvalue clusters.
+
+When `eigen()` encounters degenerate or nearly-degenerate eigenvalues, it returns
+arbitrary eigenvectors within each degenerate subspace. This causes numerical
+issues downstream (ill-conditioned W⁻¹ in S-matrix boundary matching).
+
+This function groups nearly-degenerate eigenvalues into clusters and, within each
+cluster, applies orthogonal Procrustes alignment to rotate the eigenvectors so
+they best align with the identity matrix (the free-space eigenvector basis).
+"""
+function _stabilize_eigenvectors!(
+    eigenvalues::Vector{ComplexF64},
+    eigenvectors::Matrix{ComplexF64};
+    tol::Float64 = 1e-6
+)
+    n = length(eigenvalues)
+
+    # Sort by real part (breaking ties by imaginary part) for deterministic
+    # ordering across platforms and Julia versions.
+    perm = sortperm(eigenvalues, by = λ -> (real(λ), imag(λ)))
+    eigenvalues .= eigenvalues[perm]
+    eigenvectors .= eigenvectors[:, perm]
+
+    # Identify clusters of nearly-degenerate eigenvalues and align each.
+    i = 1
+    while i <= n
+        j = i
+        while j < n && abs(eigenvalues[j + 1] - eigenvalues[i]) < tol * (1 + abs(eigenvalues[i]))
+            j += 1
+        end
+        if j > i
+            _align_cluster!(eigenvectors, i:j)
+        end
+        i = j + 1
+    end
+    return nothing
+end
+
+# Orthogonal Procrustes: rotate eigenvectors in `cols` so they best align with
+# the corresponding columns of the identity matrix.
+function _align_cluster!(W::Matrix{ComplexF64}, cols::UnitRange{Int})
+    W_c = W[:, cols]
+    # The "target" is the identity columns at indices `cols`.  The projection
+    # of these onto the cluster subspace is simply W_c[cols, :].
+    M = W_c[cols, :]
+    U, _, V = svd(M)
+    # Best-aligning unitary rotation: R = V * U'
+    W[:, cols] = W_c * (V * U')
 end
 
 function number_of_modes(layer_modes::LayerModes)

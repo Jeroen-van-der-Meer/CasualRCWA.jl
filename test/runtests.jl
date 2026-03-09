@@ -804,9 +804,9 @@ end
     @test amp(1) / amp(5) ≈ 5.0 atol = 0.02
 
     # Symmetry: positive and negative orders have the same amplitude.
-    @test amp(1) ≈ amp(-1) rtol = 1e-3
-    @test amp(3) ≈ amp(-3) rtol = 1e-3
-    @test amp(5) ≈ amp(-5) rtol = 1e-3
+    @test amp(1) ≈ amp(-1) rtol = 1e-6
+    @test amp(3) ≈ amp(-3) rtol = 1e-6
+    @test amp(5) ≈ amp(-5) rtol = 1e-6
 
     # Even orders are suppressed (50% duty cycle).
     @test amp(2) / amp(1) < 0.01
