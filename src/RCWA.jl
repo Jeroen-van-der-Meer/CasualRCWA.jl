@@ -188,8 +188,8 @@ function diffraction_efficiencies(
     P = 2N + 1
     Q = 2M + 1
     PQ = P * Q
-    top_mu = first(output.input.stack.layers).mu[1, 1]
-    bottom_mu = last(output.input.stack.layers).mu[1, 1]
+    top_mu = first(first(output.input.stack.layers).mu)
+    bottom_mu = first(last(output.input.stack.layers).mu)
 
     r_x, r_y = reflection_coefficients(output; polarization)
     t_x, t_y = transmission_coefficients(output; polarization)
@@ -226,6 +226,9 @@ end
 # z-component of the Poynting vector for a plane wave with transverse fields
 # (Ex, Ey) and wave vector (kx, ky, kz) in a medium with permeability μ.
 function _poynting_z(Ex, Ey, kx, ky, kz, μ)
+    if kz == 0 # Grazing mode; no power in z.
+        return 0.0
+    end
     return real(((kz^2 + kx^2) * abs(Ex)^2
                + 2kx * ky * real(Ex * conj(Ey))
                + (ky^2 + kz^2) * abs(Ey)^2) / conj(kz * μ))

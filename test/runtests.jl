@@ -985,6 +985,28 @@ end
     @test de_trn_X ≈ de_trn_X_repmat
 end
 
+@testset "Rayleigh anomaly" begin
+    # When λ/period is an integer, a diffraction order goes exactly grazing
+    # (kz = 0). This used to produce NaN/Inf in the scattering matrix. The
+    # simulation should still produce finite, physical results.
+    n_si = 4.0
+    input = RCWAInput(
+        Source(0.0, 0.0, 1.0),
+        Stack([Layer(1.0), Layer([1.0 n_si n_si 1.0]), Layer(n_si)],
+              [Inf, 0.5, Inf], (1.0, 1.0)),
+        (10, 0)
+    )
+    result = RCWA(input)
+    DE_ref, DE_trn = diffraction_efficiencies(result)
+
+    # All efficiencies must be finite.
+    @test all(isfinite, DE_ref)
+    @test all(isfinite, DE_trn)
+
+    # Energy conservation.
+    @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-6
+end
+
 """
 @testset "Mark in silicon" begin
     # TODO: Explicit match against the reference MATLAB implementation.

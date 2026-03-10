@@ -89,11 +89,11 @@ function prepare_wave_vectors(
     λ = source.wavelength
   
     P, Q = number_of_harmonics
-    eps_top = top_medium.eps[1, 1]
-    mu_top = top_medium.mu[1, 1]
+    eps_top = first(top_medium.eps)
+    mu_top = first(top_medium.mu)
     n_top = sqrt(eps_top * mu_top)
-    eps_bottom = bottom_medium.eps[1, 1]
-    mu_bottom = bottom_medium.mu[1, 1]
+    eps_bottom = first(bottom_medium.eps)
+    mu_bottom = first(bottom_medium.mu)
 
     k_x = n_top * sin(θ) * cos(ϕ)
     k_y = n_top * sin(θ) * sin(ϕ)

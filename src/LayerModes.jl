@@ -15,6 +15,9 @@ struct LayerModes
     end
 end
 
+const RAYLEIGH_TOL = 1e-12 # FIXME: Figure out if these constants are sane
+const RAYLEIGH_PERTURB = 1e-10
+
 function compute_modes(
     layer::ConvolvedLayer,
     wave_data::PreparedWaveVectors
@@ -63,9 +66,17 @@ function compute_modes(
 
     # The solution to this equation is expressible in terms of the eigenmodes
     # of Ω, so we may precompute these.
-    eigenvalues, E_modes = eigen(Ω2)
-    _stabilize_eigenvectors!(eigenvalues, E_modes)
-    eigenvalues .= sqrt.(eigenvalues)
+    eigenvalues2, E_modes = eigen(Ω2)
+
+    _stabilize_eigenvectors!(eigenvalues2, E_modes)
+    
+    # Rayleigh anomaly occurs when you have grazing harmonics with zero
+    # eigenvalues. These cause singularities in the scattering matrices. We
+    # perturb the squared eigenvalues by adding an infinitesimal loss.
+    Rayleigh_anomalies = abs.(eigenvalues2) .< RAYLEIGH_TOL
+    eigenvalues2[Rayleigh_anomalies] .+= im * RAYLEIGH_PERTURB
+
+    eigenvalues = sqrt.(eigenvalues2)
 
     # The magnetic fields adhere to a similar wave equation. Its eigenvalues are
     # the same as those of the E-field, and its eigenmodes are directly
@@ -93,8 +104,18 @@ function compute_modes_homogeneous(
     # repeated for both polarizations.
     kx = diag(Kx)
     ky = diag(Ky)
-    λ = sqrt.(Complex.(kx.^2 .+ ky.^2 .- ε * μ))
-    eigenvalues = vcat(λ, λ)
+    eigenvalues2 = Complex.(kx.^2 .+ ky.^2 .- ε * μ)
+
+    # Rayleigh anomaly occurs when you have grazing harmonics with zero
+    # eigenvalues. These cause singularities in the scattering matrices. We
+    # perturb the squared eigenvalues by adding an infinitesimal loss.
+    Rayleigh_anomalies = abs.(eigenvalues2) .< RAYLEIGH_TOL
+    ε_pert = fill(ε, PQ)
+    ε_pert[Rayleigh_anomalies] .-= im * RAYLEIGH_PERTURB
+    eigenvalues2[Rayleigh_anomalies] .+= im * RAYLEIGH_PERTURB * μ
+
+    eigenvalues = sqrt.(eigenvalues2)
+    eigenvalues = vcat(eigenvalues, eigenvalues)
 
     # Eigenvectors are the identity (harmonics decouple in homogeneous media).
     E_modes = Matrix{ComplexF64}(I, 2PQ, 2PQ)
@@ -104,8 +125,8 @@ function compute_modes_homogeneous(
     MKx = Kx / μ
     MKy = Ky / μ
     Q = Matrix{ComplexF64}([
-        Kx*MKy          (-Kx*MKx + ε*I(PQ));
-        (Ky*MKy - ε*I(PQ))  (-Ky*MKx)
+        Kx*MKy                   -Kx*MKx+Diagonal(ε_pert);
+        Ky*MKy-Diagonal(ε_pert)  -Ky*MKx
     ])
     M_modes = Q * Diagonal(1 ./ eigenvalues)
 
@@ -124,23 +145,23 @@ cluster, applies orthogonal Procrustes alignment to rotate the eigenvectors so
 they best align with the identity matrix (the free-space eigenvector basis).
 """
 function _stabilize_eigenvectors!(
-    eigenvalues::Vector{ComplexF64},
+    eigenvalues2::Vector{ComplexF64},
     eigenvectors::Matrix{ComplexF64};
     tol::Float64 = 1e-6
 )
-    n = length(eigenvalues)
+    n = length(eigenvalues2)
 
     # Sort by real part (breaking ties by imaginary part) for deterministic
     # ordering across platforms and Julia versions.
-    perm = sortperm(eigenvalues, by = λ -> (real(λ), imag(λ)))
-    eigenvalues .= eigenvalues[perm]
+    perm = sortperm(eigenvalues2, by = λ -> (real(λ), imag(λ)))
+    eigenvalues2 .= eigenvalues2[perm]
     eigenvectors .= eigenvectors[:, perm]
 
     # Identify clusters of nearly-degenerate eigenvalues and align each.
     i = 1
     while i <= n
         j = i
-        while j < n && abs(eigenvalues[j + 1] - eigenvalues[i]) < tol * (1 + abs(eigenvalues[i]))
+        while j < n && abs(eigenvalues2[j + 1] - eigenvalues2[i]) < tol * (1 + abs(eigenvalues2[i]))
             j += 1
         end
         if j > i
