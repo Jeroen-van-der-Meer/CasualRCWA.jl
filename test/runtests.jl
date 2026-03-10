@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
+using CasualRCWA
 using LinearAlgebra
-using RCWAForRetards
 using Test
 
 @testset "Convolution 4x4" begin
@@ -12,13 +12,13 @@ using Test
         0.4425 + 0.2311im   0.5295 + 0.1017im   0.3051 + 0.4813im   0.3582 + 0.5441im
     ]
 
-    CM = RCWAForRetards.convolve(M, (1, 1))
+    CM = CasualRCWA.convolve(M, (1, 1))
     CM_ref = [
         0.4621 + 0.4906im
     ]
     @test all(isapprox.(CM, CM_ref; atol = 1e-4))
 
-    CM = RCWAForRetards.convolve(M, (2, 2))
+    CM = CasualRCWA.convolve(M, (2, 2))
     CM_ref = [
         0.4621 + 0.4906im   0.0377 - 0.0741im   0.0154 + 0.0428im  -0.0090 + 0.0530im
        -0.0035 - 0.0854im   0.4621 + 0.4906im   0.1106 + 0.0285im   0.0154 + 0.0428im
@@ -37,7 +37,7 @@ end
         0.3745 + 0.8099im   0.4277 + 0.8951im   0.8434 + 0.0601im   0.5731 + 0.6949im   0.1452 + 0.3578im
     ]
 
-    CM = RCWAForRetards.convolve(M, (2, 3))
+    CM = CasualRCWA.convolve(M, (2, 3))
     CM_ref = [
         0.4734 + 0.5013im   0.0013 - 0.0450im   0.0336 + 0.1460im  -0.0682 - 0.0198im  -0.0278 + 0.0172im  -0.0908 - 0.0124im
        -0.0281 + 0.0264im   0.4734 + 0.5013im  -0.0138 - 0.0419im   0.0336 + 0.1460im   0.0368 + 0.0158im  -0.0278 + 0.0172im
@@ -61,7 +61,7 @@ end
 
     number_of_harmonics = (3, 3)
 
-    prepared_wave_vectors = RCWAForRetards.prepare_wave_vectors(
+    prepared_wave_vectors = CasualRCWA.prepare_wave_vectors(
         source,
         top_medium,
         bottom_medium,
@@ -137,7 +137,7 @@ end
     ]
     Kx = Diagonal([0.9597 + 0.5853im, 0.3404 + 0.2238im])
     Ky = Diagonal([0.7513 + 0.5060im, 0.2551 + 0.6991im])
-    layer_modes = RCWAForRetards.compute_modes(E, M, Kx, Ky)
+    layer_modes = CasualRCWA.compute_modes(E, M, Kx, Ky)
 
     eigenvalues = layer_modes.eigenvalues
     # There is no guarantee about the order in which Julia returns the
@@ -185,7 +185,7 @@ end
     X = Diagonal([
         0.7060 + 0.0971im,  0.2769 + 0.6948im
     ])
-    R, T = RCWAForRetards._compute_symmetric_scattering_matrix(A, B, X)
+    R, T = CasualRCWA._compute_symmetric_scattering_matrix(A, B, X)
 
     R_ref = [
        -0.8003 + 0.2375im  -0.6227 + 0.2738im
@@ -218,11 +218,11 @@ end
         0.2551 + 0.8407im   0.8909 + 0.2435im   0.1386 + 0.1966im
         0.5060 + 0.2543im   0.9593 + 0.9293im   0.1493 + 0.2511im
     ]
-    A = RCWAForRetards.ScatteringMatrix(A11, A12, A21, A22)
-    B = RCWAForRetards.ScatteringMatrix(A22, A21, A12, A11)
+    A = CasualRCWA.ScatteringMatrix(A11, A12, A21, A22)
+    B = CasualRCWA.ScatteringMatrix(A22, A21, A12, A11)
 
-    S = RCWAForRetards.star_product(A, B)
-    T = RCWAForRetards.star_product(B, A)
+    S = CasualRCWA.star_product(A, B)
+    T = CasualRCWA.star_product(B, A)
 
     S11_ref = [
        -0.3913 + 0.6709im  -0.6161 - 0.1178im
@@ -270,10 +270,10 @@ end
     top = Layer(1.0)
     bottom = Layer(1.0)
     nh = (3, 3)
-    wv = RCWAForRetards.prepare_wave_vectors(incoming, top, bottom, (3200.0, 100.0), nh)
+    wv = CasualRCWA.prepare_wave_vectors(incoming, top, bottom, (3200.0, 100.0), nh)
 
-    empty_c = RCWAForRetards.convolve(Layer(1.0), nh)
-    modes = RCWAForRetards.compute_modes(empty_c, wv)
+    empty_c = CasualRCWA.convolve(Layer(1.0), nh)
+    modes = CasualRCWA.compute_modes(empty_c, wv)
 
     PQ = prod(nh)
     @test modes.electricModes ≈ Matrix{ComplexF64}(I, 2PQ, 2PQ)

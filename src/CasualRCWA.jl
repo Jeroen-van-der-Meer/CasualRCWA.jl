@@ -1,4 +1,4 @@
-module RCWAForRetards
+module CasualRCWA
 
 using FFTW
 using LinearAlgebra
@@ -25,5 +25,6 @@ include("WaveVectorPreparation.jl")
 include("LayerModes.jl")
 include("ScatteringMatrices.jl")
 include("RCWA.jl")
+include("Shows.jl")
 
 end # module RCWA
