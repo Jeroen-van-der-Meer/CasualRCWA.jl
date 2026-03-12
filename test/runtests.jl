@@ -97,7 +97,7 @@ end
     ]
     @test all(isapprox.(K_y, K_y_ref; atol = 1e-4))
 
-    K_reflection = diag(prepared_wave_vectors.waveVectorsTop)
+    K_reflection = diag(prepared_wave_vectors.waveVectorsZReflection)
     K_reflection_ref = [
         0.0000 - 2.5315im
         0.0000 - 1.6478im
@@ -111,7 +111,7 @@ end
     ]
     @test all(isapprox.(K_reflection, K_reflection_ref; atol = 1e-4))
 
-    K_transmission = diag(prepared_wave_vectors.waveVectorsBottom)
+    K_transmission = diag(prepared_wave_vectors.waveVectorsZTransmission)
     K_transmission_ref = [
         0.7691 + 0.0000im
         2.0699 + 0.0000im
@@ -403,8 +403,8 @@ end
 
         kx = diag(wv.waveVectorsX)
         ky = diag(wv.waveVectorsY)
-        kz_top = diag(wv.waveVectorsTop)
-        kz_bot = diag(wv.waveVectorsBottom)
+        kz_top = diag(wv.waveVectorsZReflection)
+        kz_bot = diag(wv.waveVectorsZTransmission)
 
         # Dispersion relation in both media: kx² + ky² + kz² = εμ = n².
         @test kx.^2 .+ ky.^2 .+ kz_top.^2 ≈ fill(complex(n1^2), P * Q) atol = 1e-10

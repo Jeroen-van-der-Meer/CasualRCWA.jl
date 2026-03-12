@@ -196,8 +196,8 @@ function diffraction_efficiencies(
 
     kx = diag(output.waveVectors.waveVectorsX)
     ky = diag(output.waveVectors.waveVectorsY)
-    K_top    = diag(output.waveVectors.waveVectorsTop)
-    K_bottom = diag(output.waveVectors.waveVectorsBottom)
+    K_top    = diag(output.waveVectors.waveVectorsZReflection)
+    K_bottom = diag(output.waveVectors.waveVectorsZTransmission)
 
     zeroth = N + 1 + M * P
 

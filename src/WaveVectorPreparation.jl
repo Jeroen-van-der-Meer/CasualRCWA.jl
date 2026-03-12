@@ -38,16 +38,16 @@ Wave vectors presented in a shape convenient for subsequent simulation steps.
 
 - `waveVectorsX::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in X.
 - `waveVectorsY::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in Y.
-- `waveVectorsTop::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in
+- `waveVectorsZReflection::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in
   reflection region.
-- `waveVectorsBottom::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in
+- `waveVectorsZTransmission::Diagonal{ComplexF64}`: Diagonal matrix of wave vectors in
   transmission region.
 """
 struct PreparedWaveVectors
     waveVectorsX::Diagonal{ComplexF64}
     waveVectorsY::Diagonal{ComplexF64}
-    waveVectorsTop::Diagonal{ComplexF64}
-    waveVectorsBottom::Diagonal{ComplexF64}
+    waveVectorsZReflection::Diagonal{ComplexF64}
+    waveVectorsZTransmission::Diagonal{ComplexF64}
 end
 
 """

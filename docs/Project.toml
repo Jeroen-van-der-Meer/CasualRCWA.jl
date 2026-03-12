@@ -1,0 +1,4 @@
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+CasualRCWA = "7cc85cb6-1d6a-4f7f-8d11-4945f8847382"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
