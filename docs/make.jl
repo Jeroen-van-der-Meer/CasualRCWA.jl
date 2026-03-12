@@ -8,3 +8,7 @@ makedocs(;
         "Docstrings" => "docstrings.md"
     ]
 )
+
+deploydocs(
+    repo = "github.com/Jeroen-van-der-Meer/CasualRCWA.jl.git",
+)
