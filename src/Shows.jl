@@ -4,7 +4,7 @@ _fmt_complex(n::ComplexF64) = string(round(n; digits = 2))
 _is_nonmagnetic(layer::Layer) = all(layer.mu .== 1)
 
 function _material_str(layer::Layer)
-    if is_homogeneous(layer)
+    if _is_homogeneous(layer)
         ε = first(layer.eps)
         μ = first(layer.mu)
         if μ == 1.0
@@ -40,9 +40,10 @@ function _shade_map(layer::Layer, width::Int, height::Int,
     return rows
 end
 
+# FIXME: use _is_homogeneous_in_x and _is_homogeneous_in_y to deal with Y-gratings
 function Base.show(io::IO, ::MIME"text/plain", layer::Layer)
     eps_lo, eps_hi = extrema(real.(layer.eps))
-    if is_homogeneous(layer)
+    if _is_homogeneous(layer)
         bar = _shade_bar(layer, 16, eps_lo, eps_hi)
         print(io, "Layer: ", bar, "  ", _material_str(layer))
     else

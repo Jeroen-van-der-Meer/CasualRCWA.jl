@@ -27,13 +27,13 @@ grating = Layer([n_air n_glass n_glass n_air]);
 glass   = Layer(n_glass);
 
 stack = Stack(
-    [air, grating, glass],
-    [Inf, 0.5,     Inf  ], # thicknesses in um
-    (1.0, 1.0),            # period (X, Y) in um
+    [air, grating, glass], # layers
+    [Inf, 0.5, Inf], # thicknesses in um
+    1 # period in um
 );
 
-# Simulate up to 5th diffraction order in X and 0th in Y (it's a 1D problem)
-order = (5, 0);
+# Simulate up to 5th diffraction order
+order = 5;
 
 input = RCWAInput(source, stack, order)
 ```

@@ -24,6 +24,8 @@ include("Layers.jl")
 include("WaveVectorPreparation.jl")
 include("LayerModes.jl")
 include("ScatteringMatrices.jl")
+include("RCWAInput.jl")
+include("RCWAOutput.jl")
 include("RCWA.jl")
 include("Shows.jl")
 

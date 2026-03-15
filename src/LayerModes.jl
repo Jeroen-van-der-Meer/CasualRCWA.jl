@@ -26,7 +26,7 @@ function compute_modes(
     M = layer.conv_mu
     Kx = wave_data.waveVectorsX
     Ky = wave_data.waveVectorsY
-    if is_homogeneous(layer)
+    if _is_homogeneous(layer)
         # For homogeneous layers (E and M are scalar multiples of identity), the
         # eigenvalue problem has degenerate eigenvalues, and eigen() returns
         # arbitrary eigenvectors. This causes problems when comparing modes

@@ -79,8 +79,8 @@ function prepare_wave_vectors(
     period::Tuple{<:Real, <:Real},
     number_of_harmonics::Tuple{<:Integer, <:Integer}
 )
-    @assert is_homogeneous(top_medium)
-    @assert is_homogeneous(bottom_medium)
+    @assert _is_homogeneous(top_medium)
+    @assert _is_homogeneous(bottom_medium)
     @assert (period[1] > 0) && (period[2] > 0)
     @assert (number_of_harmonics[1] > 0) && (number_of_harmonics[2] > 0)
     

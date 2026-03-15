@@ -570,11 +570,10 @@ for λ in [400.0, 433.0, 500.0, 532.0, 600.0, 650.0, 800.0]
     # RCWA
     source = Source(λ)
     stack = Stack(
-        [Layer(n_air), Layer(n_film), Layer(n_air)],
-        [Inf, d, Inf],
-        (1000.0, 1000.0) # period is arbitrary
+        [Layer(n_air), Layer(n_film), Layer(n_air)], # Layers
+        [Inf, d, Inf] # Thicknesses
     )
-    output = RCWA(RCWAInput(source, stack, (0, 0)))
+    output = RCWA(RCWAInput(source, stack))
     r_x, _ = reflection_coefficients(output)
 
     @printf("λ = %3d nm:  |r|² analytical = %8.6f,  |r|² RCWA = %8.6f\n", Int(λ), abs2(r_an), abs2(r_x[1,1]))
@@ -590,10 +589,9 @@ single wavelength:
 source = Source(532.0)
 stack = Stack(
     [Layer(n_air), Layer(n_film), Layer(n_air)],
-    [Inf, d, Inf],
-    (1000.0, 1000.0)
+    [Inf, d, Inf]
 )
-output = RCWA(RCWAInput(source, stack, (0, 0)))
+output = RCWA(RCWAInput(source, stack))
 
 r_x, _ = reflection_coefficients(output)
 t_x, _ = transmission_coefficients(output)
@@ -636,10 +634,9 @@ source  = Source(0.0, π/4, 532.0) # 45° elevation
 for d in [0.1, 1.0, 10.0, 60.0, 1000.0] .* 532.0
     stack = Stack(
         [Layer(n_glass), Layer(n_air), Layer(n_glass)],
-        [Inf, d, Inf],
-        (10000.0, 10000.0) # period is arbitrary; only the zeroth order matters
+        [Inf, d, Inf]
     )
-    output = RCWA(RCWAInput(source, stack, (0, 0)))
+    output = RCWA(RCWAInput(source, stack))
     DE_ref, DE_trn = diffraction_efficiencies(output; polarization = :s)
     R, T_power = sum(DE_ref), sum(DE_trn)
     @printf("d = %6.1fλ:  R = %8.6f,  T = %8.6f,  R+T = %8.6f\n", d/532, R, T_power, R + T_power)
@@ -838,17 +835,16 @@ n_air = 1.0 - 0.0im
 grating = [n_Si n_air]
 
 source = Source(532.0) # Normal incidence; λ = 532 nm
-N, M  = 5, 0 # Orders -5..+5 in X, order 0 in Y
+N = 5 # Orders -5..+5
 depth = 200.0 # Grating depth
 
 stack = Stack(
     [Layer(n_air), Layer(grating), Layer(n_Si)], # Layers
     [Inf, depth, Inf], # Thicknesses
-    (400.0, 100.0) # Period: 400 nm in X
+    400 # Period: 400 nm in X
 )
 
-output = RCWA(RCWAInput(source, stack, (N, M)))
-nothing # hide
+output = RCWA(RCWAInput(source, stack, N))
 ```
 
 A few things to note:
@@ -909,14 +905,14 @@ end
 
 This reveals the propagating/evanescent structure directly:
 
-- Order 0 in air: $k_z = -1.0$, purely real. This is a propagating wave. The
+- Order $0$ in air: $k_z = -1.0$, purely real. This is a propagating wave. The
   negative sign indicates it travels in the $-z$ direction. (In CasualRCWA,
   which uses the negative sign convention, the z direction points down.) This is
   the only propagating reflected order.
 - Orders $\pm 1$, $\pm 2$, ... in air: $k_z$ is purely imaginary (e.g.
   $\approx -0.88i$ for order $\pm 1$). These are evanescent; they decay
   exponentially away from the surface and carry no power to a distant detector.
-- Orders 0, $\pm 1$, $\pm 2$, $\pm 3$ in silicon: $k_z$ is real. Silicon's high
+- Orders $0$, $\pm 1$, $\pm 2$, $\pm 3$ in silicon: $k_z$ is real. Silicon's high
   refractive index ($n = 4$) makes the dispersion relation $k_z^2 = n^2 - k_x^2$
   positive for more orders, so all of these propagate as real beams inside the
   substrate.
@@ -961,7 +957,7 @@ end
 ```
 
 Modes 3–9 and 14–20 are purely imaginary (propagating), corresponding to orders
-0, $\pm 1$, $\pm 2$, and $\pm 3$ for both polarizations. Orders $\pm 4$ and
+$0$, $\pm 1$, $\pm 2$, and $\pm 3$ for both polarizations. Orders $\pm 4$ and
 $\pm 5$ remain evanescent.
 
 Now the grating layer, the interesting one:

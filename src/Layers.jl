@@ -61,8 +61,13 @@ end
 Layer(eps::Number, mu::Number) = Layer([eps;;], [mu;;])
 Layer(nk::Number) = Layer([nk;;])
 
-is_homogeneous(layer::Layer) = (length(unique(layer.eps)) == 1) &&
-    (length(unique(layer.mu)) == 1)
+_is_homogeneous(layer::Layer)      = _is_homogeneous(layer.eps)      && _is_homogeneous(layer.mu)
+_is_homogeneous_in_x(layer::Layer) = _is_homogeneous_in_x(layer.eps) && _is_homogeneous_in_x(layer.mu)
+_is_homogeneous_in_y(layer::Layer) = _is_homogeneous_in_y(layer.eps) && _is_homogeneous_in_y(layer.mu)
+
+_is_homogeneous(M) = length(unique(M)) == 1
+_is_homogeneous_in_x(M) = all(diff(M; dims = 1) .== 0)
+_is_homogeneous_in_y(M) = all(diff(M; dims = 2) .== 0)
 
 """
     struct ConvolvedLayer
@@ -174,7 +179,7 @@ function _pixel_transfer(k::Int64, N::Int64)
     return (1 - exp(-im * u)) / (im * u)
 end
 
-is_homogeneous(layer::ConvolvedLayer) = _is_scaled_identity(layer.conv_eps) &&
+_is_homogeneous(layer::ConvolvedLayer) = _is_scaled_identity(layer.conv_eps) &&
     _is_scaled_identity(layer.conv_mu)
 
 # Check whether a matrix is a scalar multiple of the identity matrix.

@@ -1065,6 +1065,64 @@ end
     end
 end
 
+@testset "0D convenience constructors" begin
+    # Stack without period (all homogeneous layers).
+    stack_0d = Stack([Layer(1.0), Layer(1.5), Layer(2.0)], [Inf, 100.0, Inf])
+    @test stack_0d.period == (1.0, 1.0)
+
+    # RCWAInput without order.
+    input_0d = RCWAInput(Source(532.0), stack_0d)
+    @test input_0d.order == (0, 0)
+
+    # Should produce the same result as the explicit version.
+    input_explicit = RCWAInput(
+        Source(532.0),
+        Stack([Layer(1.0), Layer(1.5), Layer(2.0)], [Inf, 100.0, Inf], (1.0, 1.0)),
+        (0, 0)
+    )
+    DE_ref_0d, DE_trn_0d = diffraction_efficiencies(RCWA(input_0d))
+    DE_ref_ex, DE_trn_ex = diffraction_efficiencies(RCWA(input_explicit))
+    @test DE_ref_0d ≈ DE_ref_ex
+    @test DE_trn_0d ≈ DE_trn_ex
+end
+
+@testset "1D convenience constructors" begin
+    # X-varying grating: columns = X in user convention.
+    # A 1×4 row matrix varies in X (4 columns).
+    pattern_x = [1.0+0im 1.5+0im 1.5+0im 1.0+0im]
+    stack_1d_x = Stack(
+        [Layer(1.0), Layer(pattern_x), Layer(1.5)],
+        [Inf, 100.0, Inf], 3200.0
+    )
+    @test stack_1d_x.period == (3200.0, 1.0)
+
+    input_1d_x = RCWAInput(Source(532.0), stack_1d_x, 3)
+    @test input_1d_x.order == (3, 0)
+
+    # Y-varying grating: a 4×1 matrix varies in Y (4 rows, 1 column).
+    pattern_y = reshape([1.0+0im, 1.5+0im, 1.5+0im, 1.0+0im], 4, 1)
+    stack_1d_y = Stack(
+        [Layer(1.0), Layer(pattern_y), Layer(1.0)],
+        [Inf, 100.0, Inf], 3200.0
+    )
+    @test stack_1d_y.period == (1.0, 3200.0)
+
+    input_1d_y = RCWAInput(Source(532.0), stack_1d_y, 3)
+    @test input_1d_y.order == (0, 3)
+
+    # Results should match the explicit 2-tuple version.
+    input_explicit_x = RCWAInput(
+        Source(532.0),
+        Stack([Layer(1.0), Layer(pattern_x), Layer(1.5)],
+              [Inf, 100.0, Inf], (3200.0, 1.0)),
+        (3, 0)
+    )
+    DE_ref_1d, DE_trn_1d = diffraction_efficiencies(RCWA(input_1d_x))
+    DE_ref_ex, DE_trn_ex = diffraction_efficiencies(RCWA(input_explicit_x))
+    @test DE_ref_1d ≈ DE_ref_ex
+    @test DE_trn_1d ≈ DE_trn_ex
+end
+
 """
 @testset "Mark in silicon" begin
     # TODO: Explicit match against the reference MATLAB implementation.
