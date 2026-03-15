@@ -16,7 +16,7 @@ struct LayerModes
 end
 
 const RAYLEIGH_TOL = 1e-12 # FIXME: Figure out if these constants are sane
-const RAYLEIGH_PERTURB = 1e-10
+const RAYLEIGH_PERTURB = 1e-11
 
 function compute_modes(
     layer::ConvolvedLayer,

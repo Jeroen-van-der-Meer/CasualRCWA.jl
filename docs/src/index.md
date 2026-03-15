@@ -34,8 +34,8 @@ The material parameters $\varepsilon$ and $\mu$ can vary with position; they
 describe how strongly the material responds to electric and magnetic fields,
 respectively. Most optical materials are non-magnetic, meaning $\mu = 1$.
 
-We work with **monochromatic** light at angular frequency $\omega$. Every field
-then oscillates at the same frequency, and we may write
+We work with monochromatic light at angular frequency $\omega$. Every field then
+oscillates at the same frequency, and we may write
 
 ```math
 \mathbf{E}(\mathbf{r}, t)
@@ -102,10 +102,10 @@ n = \sqrt{\varepsilon\mu},
 ```
 
 where $n$ is the **refractive index** of the material. In general $n$ is a
-**complex number**: $n = n' + in''$. The real part $n'$ determines the
-wavelength inside the material (a higher $n'$ means a shorter wavelength, so
-$|\mathbf{k}|$ is larger). The imaginary part $n''$ describes **absorption**:
-substituting a complex $n$ into the plane wave gives
+complex number: $n = n' + in''$. The real part $n'$ determines the wavelength
+inside the material (a higher $n'$ means a shorter wavelength, so $|\mathbf{k}|$
+is larger). The imaginary part $n''$ describes **absorption**: substituting a
+complex $n$ into the plane wave gives
 
 ```math
 e^{i k z} = e^{i (2\pi n / \lambda) z}
@@ -194,8 +194,8 @@ later.
 ## The transfer-matrix method for layered media
 
 Before tackling periodic structures, it is instructive to study the simpler
-problem of light propagating through a stack of **homogeneous slabs**. This is
-the domain of the **transfer-matrix method** (TMM).
+problem of light propagating through a stack of homogeneous slabs. This is the
+domain of the **transfer-matrix method** (TMM).
 
 ### Setting up the problem
 
@@ -233,8 +233,8 @@ bottommost medium, given the boundary conditions at every interface.
 
 ### Boundary conditions and interface matrices
 
-At each interface, Maxwell's equations demand that the **tangential** components
-of $\mathbf{E}$ and $\mathbf{H}$ are continuous. In the special case that
+At each interface, Maxwell's equations demand that the tangential components of
+$\mathbf{E}$ and $\mathbf{H}$ are continuous. In the special case that
 $k_x = k_y = 0$ (in other words, the incoming light is at normal incidence),
 these conditions at the interface between layers $j$ and $j+1$ can be expressed
 as a relation
@@ -640,7 +640,7 @@ for d in [0.1, 1.0, 10.0, 60.0, 1000.0] .* 532.0
         (10000.0, 10000.0) # period is arbitrary; only the zeroth order matters
     )
     output = RCWA(RCWAInput(source, stack, (0, 0)))
-    DE_ref, DE_trn = diffraction_efficiencies(output; polarization = :y)
+    DE_ref, DE_trn = diffraction_efficiencies(output; polarization = :s)
     R, T_power = sum(DE_ref), sum(DE_trn)
     @printf("d = %6.1fλ:  R = %8.6f,  T = %8.6f,  R+T = %8.6f\n", d/532, R, T_power, R + T_power)
 end
@@ -693,9 +693,9 @@ discrete beams rather than a continuum of scattered light.
 
 In the transfer-matrix method, each layer is homogeneous, so the forward and
 backward plane waves decouple, thus producing a $2 \times 2$ problem per
-polarization. In RCWA, the layers can be **patterned**: $\varepsilon$ and $\mu$
-vary periodically within the plane. This spatial variation couples different
-Fourier harmonics to each other.
+polarization. In RCWA, the layers can be patterned: $\varepsilon$ and $\mu$ vary
+periodically within the plane. This spatial variation couples different Fourier
+harmonics to each other.
 
 Concretely, the $\varepsilon(x,y)$ and $\mu(x,y)$ profiles of a patterned layer
 are each expanded into a Fourier series. Maxwell's curl equations involve
@@ -866,7 +866,7 @@ The exposition above uses the standard sign convention found in optics
 textbooks, in which z points _up_, and the refractive index has
 $\operatorname{Im}(n) > 0$. In contrast, CasualRCWA uses the _negative_ sign
 convention. Waves travel _down_, and the imaginary part of the refractive index
-is **negative** for an absorbing material. The reason for this choice was for
+is _negative_ for an absorbing material. The reason for this choice was for
 compatibility reasons with a pre-existing simulator that uses the negative sign
 convention. That is why the example above suggestively writes `4.0 - 0.0im`
 rather than `4.0 + 0.0im`.
@@ -909,18 +909,18 @@ end
 
 This reveals the propagating/evanescent structure directly:
 
-- **Order 0 in air**: $k_z = -1.0$, purely real. This is a propagating wave. The
+- Order 0 in air: $k_z = -1.0$, purely real. This is a propagating wave. The
   negative sign indicates it travels in the $-z$ direction. (In CasualRCWA,
   which uses the negative sign convention, the z direction points down.) This is
   the only propagating reflected order.
-- **Orders $\pm 1$, $\pm 2$, ... in air**: $k_z$ is purely imaginary (e.g.
+- Orders $\pm 1$, $\pm 2$, ... in air: $k_z$ is purely imaginary (e.g.
   $\approx -0.88i$ for order $\pm 1$). These are evanescent; they decay
   exponentially away from the surface and carry no power to a distant detector.
-- **Orders 0, $\pm 1$, $\pm 2$, $\pm 3$ in silicon**: $k_z$ is real. Silicon's
-  high refractive index ($n = 4$) makes the dispersion relation
-  $k_z^2 = n^2 - k_x^2$ positive for more orders, so all of these propagate as
-  real beams inside the substrate.
-- **Orders $\pm 4$, $\pm 5$ in silicon**: $k_z$ is imaginary; evanescent even in
+- Orders 0, $\pm 1$, $\pm 2$, $\pm 3$ in silicon: $k_z$ is real. Silicon's high
+  refractive index ($n = 4$) makes the dispersion relation $k_z^2 = n^2 - k_x^2$
+  positive for more orders, so all of these propagate as real beams inside the
+  substrate.
+- Orders $\pm 4$, $\pm 5$ in silicon: $k_z$ is imaginary; evanescent even in
   silicon, because $k_x$ is too large.
 
 ### Inspecting the eigenmodes
@@ -1058,7 +1058,7 @@ time-averaged z-flux is exactly zero.
 By the way, notice the relationship between positive and negative orders. Even
 orders satisfy $r(+n) = r(-n)$ (symmetric), while odd orders satisfy
 $r(+n) = -r(-n)$ (antisymmetric). This is a direct consequence of the grating's
-**glide symmetry**. Our 50% duty cycle binary grating satisfies
+glide symmetry. Our 50% duty cycle binary grating satisfies
 $\varepsilon(x) = \varepsilon(-x + \Lambda/2)$; if you reflect the structure in
 x and then shift by half a period, you get the same structure back. In Fourier
 space, the half-period shift multiplies order $n$ by $(-1)^n$, so the combined
@@ -1073,14 +1073,14 @@ coefficients should reflect this. (Pun intended.)
 
 ## Where to go from here
 
-- **2D gratings**: provide a 2D matrix for the layer pattern and set $M > 0$.
-  The output matrices become 2D.
-- **Oblique incidence**: set the elevation angle $\theta$ in `Source` to a
-  nonzero value. This shifts all the $k_x$ values, potentially changing which
-  orders propagate.
-- **Multi-layer stacks**: add more layers and thicknesses. The S-matrices are
+- 2D gratings: provide a 2D matrix for the layer pattern and set $M > 0$. The
+  output matrices become 2D.
+- Oblique incidence: set the elevation angle $\theta$ in `Source` to a nonzero
+  value. This shifts all the $k_x$ values, potentially changing which orders
+  propagate.
+- Multi-layer stacks: add more layers and thicknesses. The S-matrices are
   cascaded automatically.
-- **Convergence**: increase $N$ (and $M$ for 2D) until your quantity of interest
+- Convergence: increase $N$ (and $M$ for 2D) until your quantity of interest
   stops changing. High-contrast structures like silicon-in-air may require
   $N = 10$ or more.
 

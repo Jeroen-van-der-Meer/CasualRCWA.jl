@@ -373,6 +373,61 @@ end
             end
         end
     end
+
+    @testset "s/p symbols and Jones vector" begin
+        n1, n2 = 1.0, 1.5
+
+        # ϕ = 0: :s should match :y, :p should match :x
+        for θ_i in [0.0, 0.3, 0.8]
+            input = RCWAInput(
+                Source(0.0, θ_i, 532.0),
+                Stack([Layer(n1), Layer(n2)], [Inf, Inf], (3200.0, 100.0)),
+                (N, M)
+            )
+            result = RCWA(input)
+
+            DE_x, _ = diffraction_efficiencies(result; polarization = :x)
+            DE_p, _ = diffraction_efficiencies(result; polarization = :p)
+            @test DE_x ≈ DE_p
+
+            _, DE_y = diffraction_efficiencies(result; polarization = :y)
+            _, DE_s = diffraction_efficiencies(result; polarization = :s)
+            @test DE_y ≈ DE_s
+
+            # Jones vector [1, 0] should match :x
+            DE_jones, _ = diffraction_efficiencies(result; polarization = [1, 0])
+            @test DE_x ≈ DE_jones
+
+            # Unnormalized vector should still match
+            DE_1234, _ = diffraction_efficiencies(result; polarization = [1234, 0])
+            @test DE_x ≈ DE_1234
+        end
+
+        # Oblique incidence with nonzero ϕ: :s and :p should still satisfy
+        # Fresnel power conservation and give correct reflectance.
+        for (ϕ, θ_i) in [(π / 4, 0.3), (π / 3, 0.5), (1.2, 0.15)]
+            cos_i = cos(θ_i)
+            cos_t = sqrt(1 - (n1 / n2 * sin(θ_i))^2)
+
+            R_s = abs((n1 * cos_i - n2 * cos_t) / (n1 * cos_i + n2 * cos_t))^2
+            R_p = abs((n2 * cos_i - n1 * cos_t) / (n2 * cos_i + n1 * cos_t))^2
+
+            input = RCWAInput(
+                Source(ϕ, θ_i, 532.0),
+                Stack([Layer(n1), Layer(n2)], [Inf, Inf], (3200.0, 100.0)),
+                (N, M)
+            )
+            result = RCWA(input)
+
+            DE_ref_s, DE_trn_s = diffraction_efficiencies(result; polarization = :s)
+            @test DE_ref_s[zeroth_p, zeroth_q] ≈ R_s atol = 1e-10
+            @test sum(DE_ref_s) + sum(DE_trn_s) ≈ 1.0 atol = 1e-10
+
+            DE_ref_p, DE_trn_p = diffraction_efficiencies(result; polarization = :p)
+            @test DE_ref_p[zeroth_p, zeroth_q] ≈ R_p atol = 1e-10
+            @test sum(DE_ref_p) + sum(DE_trn_p) ≈ 1.0 atol = 1e-10
+        end
+    end
 end
 
 @testset "Snell's law" begin
@@ -668,12 +723,12 @@ end
 
             # Complex reflection coefficient should match exactly (all modes are
             # homogeneous, so no truncation error).
-            r_x, r_y = reflection_coefficients(result)
+            r_x, r_y = reflection_coefficients(result; polarization = :p)
             @test r_x[zeroth_p, zeroth_q] ≈ r_fp atol = 1e-10
             @test abs(r_y[zeroth_p, zeroth_q]) < 1e-12
 
             # Power: diffraction efficiencies.
-            DE_ref, DE_trn = diffraction_efficiencies(result)
+            DE_ref, DE_trn = diffraction_efficiencies(result; polarization = :p)
             @test DE_ref[zeroth_p, zeroth_q] ≈ R_fp atol = 1e-10
             @test DE_trn[zeroth_p, zeroth_q] ≈ T_fp atol = 1e-10
 
@@ -789,7 +844,7 @@ end
         (N, M)
     )
     result = RCWA(input)
-    t_x, _ = transmission_coefficients(result)
+    t_x, _ = transmission_coefficients(result; polarization = :x)
 
     zeroth_p = N + 1
     amp(m) = abs(t_x[zeroth_p + m, 1])
@@ -997,14 +1052,17 @@ end
         (10, 0)
     )
     result = RCWA(input)
-    DE_ref, DE_trn = diffraction_efficiencies(result)
 
-    # All efficiencies must be finite.
-    @test all(isfinite, DE_ref)
-    @test all(isfinite, DE_trn)
+    for pol in [:x, :y]
+        DE_ref, DE_trn = diffraction_efficiencies(result; polarization = pol)
 
-    # Energy conservation.
-    @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-6
+        # All efficiencies must be finite.
+        @test all(isfinite, DE_ref)
+        @test all(isfinite, DE_trn)
+
+        # Energy conservation.
+        @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-6
+    end
 end
 
 """

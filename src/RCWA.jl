@@ -110,38 +110,50 @@ function RCWA(input::RCWAInput)
     return RCWAOutput(input, wave_vectors, modes, Sg)
 end
 
+struct JonesVector
+    x::ComplexF64
+    y::ComplexF64
+    
+    function JonesVector(x::Number, y::Number)
+        @assert (x != 0) || (y != 0)
+        return new(x, y)
+    end
+end
+
 # Build the 2PQ incident source vector for the zeroth harmonic.
-function _source_vector(N::Int64, M::Int64, polarization::Symbol)
+function _source_vector(N::Int64, M::Int64, jones::JonesVector)
     P = 2N + 1
     Q = 2M + 1
     PQ = P * Q
     zeroth = N + 1 + M * P
     c_inc = zeros(ComplexF64, 2PQ)
-    if polarization === :x
-        c_inc[zeroth] = 1.0
-    elseif polarization === :y
-        c_inc[zeroth + PQ] = 1.0
-    else
-        error("polarization must be :x or :y")
-    end
+    c_inc[zeroth] = jones.x
+    c_inc[zeroth + PQ] = jones.y
     return c_inc
 end
 
 """
-    reflection_coefficients(output; polarization = :x) -> (r_x, r_y)
+    reflection_coefficients(output; polarization = :s) -> (r_x, r_y)
 
 Complex reflected field amplitudes per diffraction order, returned as two
 P x Q matrices (one per polarization component).
+
+# Arguments
+
+- `output::RCWAOutput`.
+- `polarization`: Can be `:x`, `:y`, `:s` (TE), `:p` (TM), or an arbitrary 2-
+  element Jones vector `[Ex, Ey]`.
 """
 function reflection_coefficients(
     output::RCWAOutput;
-    polarization::Symbol = :x,
+    polarization = :s,
 )
     N, M = output.input.order
     P = 2N + 1
     Q = 2M + 1
     PQ = P * Q
-    c_inc = _source_vector(N, M, polarization)
+    jones = _resolve_polarization(polarization, output.input.source)
+    c_inc = _source_vector(N, M, jones)
     c_ref = output.scatteringMatrix.S11 * c_inc
     r_x = reshape(c_ref[1:PQ], P, Q)
     r_y = reshape(c_ref[PQ+1:2PQ], P, Q)
@@ -149,40 +161,74 @@ function reflection_coefficients(
 end
 
 """
-    transmission_coefficients(output; polarization = :x) -> (t_x, t_y)
+    transmission_coefficients(output; polarization = :s) -> (t_x, t_y)
 
 Complex transmitted field amplitudes per diffraction order, returned as two
 P x Q matrices (one per polarization component).
+
+# Arguments
+
+- `output::RCWAOutput`.
+- `polarization`: Can be `:x`, `:y`, `:s` (TE), `:p` (TM), or an arbitrary 2-
+  element Jones vector `[Ex, Ey]`.
 """
 function transmission_coefficients(
     output::RCWAOutput;
-    polarization::Symbol = :x,
+    polarization = :s,
 )
     N, M = output.input.order
     P = 2N + 1
     Q = 2M + 1
     PQ = P * Q
-    c_inc = _source_vector(N, M, polarization)
+    jones = _resolve_polarization(polarization, output.input.source)
+    c_inc = _source_vector(N, M, jones)
     c_trn = output.scatteringMatrix.S21 * c_inc
     t_x = reshape(c_trn[1:PQ], P, Q)
     t_y = reshape(c_trn[PQ+1:2PQ], P, Q)
     return t_x, t_y
 end
 
+# Resolve a polarization keyword to a Jones vector [Ex, Ey].
+function _resolve_polarization(pol::Symbol, source::Source)
+    if pol === :x
+        return JonesVector(1, 0)
+    elseif pol === :y
+        return JonesVector(0, 1)
+    elseif pol === :s
+        ϕ = source.azimuthalAngle
+        return JonesVector(-sin(ϕ), cos(ϕ))
+    elseif pol === :p
+        ϕ = source.azimuthalAngle
+        θ = source.elevationAngle
+        return JonesVector(cos(θ) * cos(ϕ), cos(θ) * sin(ϕ))
+    else
+        error("polarization must be :x, :y, :s, :p, or a 2-element Jones vector")
+    end
+end
+
+function _resolve_polarization(pol::AbstractVector{<:Number}, ::Source)
+    @assert length(pol) == 2
+    return JonesVector(pol[1], pol[2])
+end
+
+_resolve_polarization(pol::JonesVector, ::Source) = pol
+
 """
-    diffraction_efficiencies(output; polarization = :x) -> (DE_ref, DE_trn)
+    diffraction_efficiencies(output; polarization = :s) -> (DE_ref, DE_trn)
 
 Power per diffraction order normalized to the incident power, returned as two
-P x Q real matrices. In the lossless case, `sum(DE_ref) + sum(DE_trn) ≈ 1`.
+P x Q real matrices. The power is computed from the z-component of the Poynting
+vector.
 
-The power is computed from the z-component of the Poynting vector, which for a
-plane wave with transverse fields (Ex, Ey) and wave vector (kx, ky, kz) is:
+# Arguments
 
-    Sz = Re(1/(kz* μ*)) x [(kz²+kx²)|Ex|² + 2 kx ky Re(Ex Ey*) + (ky²+kz²)|Ey|²]
+- `output::RCWAOutput`.
+- `polarization`: Can be `:x`, `:y`, `:s` (TE), `:p` (TM), or an arbitrary 2-
+  element Jones vector `[Ex, Ey]`.
 """
 function diffraction_efficiencies(
     output::RCWAOutput;
-    polarization::Symbol = :x,
+    polarization = :s,
 )
     N, M = output.input.order
     P = 2N + 1
@@ -191,21 +237,20 @@ function diffraction_efficiencies(
     top_mu = first(first(output.input.stack.layers).mu)
     bottom_mu = first(last(output.input.stack.layers).mu)
 
+    jones = _resolve_polarization(polarization, output.input.source)
     r_x, r_y = reflection_coefficients(output; polarization)
     t_x, t_y = transmission_coefficients(output; polarization)
 
-    kx = diag(output.waveVectors.waveVectorsX)
-    ky = diag(output.waveVectors.waveVectorsY)
-    K_top    = diag(output.waveVectors.waveVectorsZReflection)
-    K_bottom = diag(output.waveVectors.waveVectorsZTransmission)
+    kx        = diag(output.waveVectors.waveVectorsX)
+    ky        = diag(output.waveVectors.waveVectorsY)
+    kz_top    = diag(output.waveVectors.waveVectorsZReflection)
+    kz_bottom = diag(output.waveVectors.waveVectorsZTransmission)
 
     zeroth = N + 1 + M * P
 
-    # Incident power (source is a single transverse polarization component).
-    Ex_inc = polarization === :x ? 1.0 : 0.0
-    Ey_inc = polarization === :y ? 1.0 : 0.0
-    Sz_inc = _poynting_z(Ex_inc, Ey_inc, kx[zeroth], ky[zeroth],
-                         -K_top[zeroth], top_mu)
+    # Incident power from the Jones vector.
+    Sz_inc = _poynting_z(jones.x, jones.y, kx[zeroth], ky[zeroth],
+                         -kz_top[zeroth], top_mu)
 
     rx = vec(r_x); ry = vec(r_y)
     tx = vec(t_x); ty = vec(t_y)
@@ -215,9 +260,9 @@ function diffraction_efficiencies(
     for j in 1:PQ
         # Reflected wave propagates in -z, so Sz is negative; negate for DE.
         DE_ref[j] = -_poynting_z(rx[j], ry[j], kx[j], ky[j],
-                                 K_top[j], top_mu) / Sz_inc
+                                 kz_top[j], top_mu) / Sz_inc
         DE_trn[j] =  _poynting_z(tx[j], ty[j], kx[j], ky[j],
-                                 K_bottom[j], bottom_mu) / Sz_inc
+                                 kz_bottom[j], bottom_mu) / Sz_inc
     end
 
     return reshape(DE_ref, P, Q), reshape(DE_trn, P, Q)

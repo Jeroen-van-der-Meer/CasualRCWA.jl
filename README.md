@@ -1,12 +1,15 @@
 # CasualRCWA.jl
 
+[![Build Status](https://github.com/Jeroen-van-der-Meer/CasualRCWA.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/Jeroen-van-der-Meer/CasualRCWA.jl/actions/workflows/ci.yml?query=branch%3Amaster)
+[![Docs](https://img.shields.io/badge/Docs-stable-blue.svg)](https://Jeroen-van-der-Meer.github.io/CasualRCWA.jl/stable/)
+
 A straightforward Julia implementation of Rigorous Coupled-Wave Analysis (RCWA)
 for simulating diffraction from periodic structures.
 
 ## Example: 1D Silicon Grating
 
-Simulate a binary silicon grating (period 1 um, 50% duty cycle, 500 nm thick)
-at 600 nm wavelength under normal incidence.
+Simulate a binary silicon grating (period 1 um, 50% duty cycle, 500 nm thick) at
+600 nm wavelength under normal incidence.
 
 ```julia
 using CasualRCWA
@@ -59,8 +62,8 @@ RCWAOutput:
 ```
 
 The `RCWAOutput` struct notably contains the scattering matrices and
-accompanying wave vectors. Some helper functions can be used to directly
-extract diffraction efficiencies:
+accompanying wave vectors. Some helper functions can be used to directly extract
+diffraction efficiencies:
 
 ```julia
 # Diffraction efficiencies of X-polarized light
