@@ -6,9 +6,9 @@ abstract type AbstractLayer end
 Layer described in terms of complex electric permittivity and complex magnetic
 permeability.
 
-Note that we use the negative sign convention where a wave propagating in the
-+z-direction is written as exp(-ikz). As such, the imaginary part of the complex
-permittivity is negative.
+We use the convention exp(i(k·r - ωt)) common in optics, so a wave propagating
+in the +z direction is written as exp(ikz). As such, the imaginary parts of the
+complex permittivity and permeability are positive for absorbing materials.
 
 The input matrices use Cartesian convention: columns correspond to the X
 direction, rows to Y, with row 1 being the +Y edge. Internally, the matrices
@@ -27,7 +27,8 @@ struct Layer <: AbstractLayer
         eps::AbstractMatrix{<:Number},
         mu::AbstractMatrix{<:Number}
     )
-        @assert all(imag(eps) .<= 0)
+        @assert all(imag(eps) .>= 0)
+        @assert all(imag(mu) .>= 0)
         # Map user convention (cols = X, rows = Y, top = +Y) to internal
         # layout (dim1 = X, dim2 = Y).
         eps = collect(reverse(transpose(eps), dims = 2))
@@ -43,16 +44,17 @@ Describe a layer in terms of its complex refractive index.
 
 This description may only be used for non-magnetic materials.
 
-Note that we use the negative sign convention where a wave propagating in the
-+z-direction is written as exp(-ikz). As such, the imaginary part of the complex
-refractive index is negative.
+We use the convention exp(i(k·r - ωt)) common in optics, so a wave propagating
+in the +z direction is written as exp(ikz). As such, the complex refractive
+index is n + ik with k ≥ 0, as tabulated in most refractive index databases.
+For example, silicon at 532 nm is approximately `4.15 + 0.044im`.
 
 # Arguments
 
 - `nk::AbstractMatrix{<:Number}`: Complex refractive index per pixel.
 """
 function Layer(nk::AbstractMatrix{<:Number})
-    @assert all(imag(nk) .<= 0)
+    @assert all(imag(nk) .>= 0)
     eps = nk.^2
     mu = ones(size(eps))
     return Layer(eps, mu)

@@ -6,7 +6,12 @@ all metadata needed to extract reflection/transmission coefficients and
 diffraction efficiencies.
 
 Use `reflection_coefficients`, `transmission_coefficients`, and
-`diffraction_efficiencies` to query the result.
+`diffraction_efficiencies` to query the result. These return P × Q matrices,
+where P = 2N + 1 and Q = 2M + 1 for `order = (N, M)`. The entry at index
+`[N + 1 + m, M + 1 + n]` belongs to diffraction order (m, n), whose in-plane wave
+vector is `(k_x + m λ/Λx, k_y + n λ/Λy)` in units of 2π/λ. Reflection
+coefficients are referenced to the top interface and transmission coefficients to
+the bottom interface.
 
 # Properties
 
@@ -181,13 +186,15 @@ function diffraction_efficiencies(
     return reshape(DE_ref, P, Q), reshape(DE_trn, P, Q)
 end
 
-# z-component of the Poynting vector for a plane wave with transverse fields
-# (Ex, Ey) and wave vector (kx, ky, kz) in a medium with permeability μ.
+# z-component of the Poynting vector (up to a constant factor) for a plane wave
+# with transverse fields (Ex, Ey) and wave vector (kx, ky, kz) in a medium with
+# permeability μ. The in-plane components kx, ky must be real; kz may be complex.
 function _poynting_z(Ex, Ey, kx, ky, kz, μ)
     if kz == 0 # Grazing mode; no power in z.
         return 0.0
     end
-    return real(((kz^2 + kx^2) * abs(Ex)^2
-               + 2kx * ky * real(Ex * conj(Ey))
-               + (ky^2 + kz^2) * abs(Ey)^2) / conj(kz * μ))
+    # Ez follows from k·E = 0 and H from k × E = ωμH, so that
+    # Re(Ex Hy* - Ey Hx*) ∝ Re((kz* |E_t|² + |kx Ex + ky Ey|² / kz*) / μ*).
+    return real((conj(kz) * (abs2(Ex) + abs2(Ey))
+                 + abs2(kx * Ex + ky * Ey) / conj(kz)) / conj(μ))
 end

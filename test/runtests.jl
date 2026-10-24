@@ -69,59 +69,62 @@ end
         number_of_harmonics
     )
 
+    # Orders run from -1 to +1 with X varying fastest; order m has
+    # K_x = k_x + m λ/Λx.
     K_x = diag(prepared_wave_vectors.waveVectorsX)
     K_x_ref = [
-        2.1872 + 0.0000im
-        1.0443 + 0.0000im
        -0.0985 + 0.0000im
-        2.1872 + 0.0000im
         1.0443 + 0.0000im
-       -0.0985 + 0.0000im
         2.1872 + 0.0000im
-        1.0443 + 0.0000im
        -0.0985 + 0.0000im
+        1.0443 + 0.0000im
+        2.1872 + 0.0000im
+       -0.0985 + 0.0000im
+        1.0443 + 0.0000im
+        2.1872 + 0.0000im
     ]
     @test all(isapprox.(K_x, K_x_ref; atol = 1e-4))
 
     K_y = diag(prepared_wave_vectors.waveVectorsY)
     K_y_ref = [
-        1.9039 + 0.0000im
-        1.9039 + 0.0000im
-        1.9039 + 0.0000im
-        0.5705 + 0.0000im
-        0.5705 + 0.0000im
-        0.5705 + 0.0000im
        -0.7628 + 0.0000im
        -0.7628 + 0.0000im
        -0.7628 + 0.0000im
+        0.5705 + 0.0000im
+        0.5705 + 0.0000im
+        0.5705 + 0.0000im
+        1.9039 + 0.0000im
+        1.9039 + 0.0000im
+        1.9039 + 0.0000im
     ]
     @test all(isapprox.(K_y, K_y_ref; atol = 1e-4))
 
+    # Reflected waves travel (or decay) in the -z direction.
     K_reflection = diag(prepared_wave_vectors.waveVectorsZReflection)
     K_reflection_ref = [
-        0.0000 - 2.5315im
-        0.0000 - 1.6478im
-        0.0000 - 1.2784im
-        0.0000 - 1.7633im
-       -0.7641 + 0.0000im
-       -1.2903 + 0.0000im
-        0.0000 - 1.8346im
-       -0.5723 + 0.0000im
        -1.1868 + 0.0000im
+       -0.5723 + 0.0000im
+        0.0000 - 1.8346im
+       -1.2903 + 0.0000im
+       -0.7641 + 0.0000im
+        0.0000 - 1.7633im
+        0.0000 - 1.2784im
+        0.0000 - 1.6478im
+        0.0000 - 2.5315im
     ]
     @test all(isapprox.(K_reflection, K_reflection_ref; atol = 1e-4))
 
     K_transmission = diag(prepared_wave_vectors.waveVectorsZTransmission)
     K_transmission_ref = [
-        0.7691 + 0.0000im
-        2.0699 + 0.0000im
-        2.3164 + 0.0000im
-        1.9725 + 0.0000im
-        2.7539 + 0.0000im
-        2.9436 + 0.0000im
-        1.9064 + 0.0000im
-        2.7069 + 0.0000im
         2.8997 + 0.0000im
+        2.7069 + 0.0000im
+        1.9064 + 0.0000im
+        2.9436 + 0.0000im
+        2.7539 + 0.0000im
+        1.9725 + 0.0000im
+        2.3164 + 0.0000im
+        2.0699 + 0.0000im
+        0.7691 + 0.0000im
     ]
     @test all(isapprox.(K_transmission, K_transmission_ref; atol = 1e-4))
 end
@@ -278,11 +281,44 @@ end
     PQ = prod(nh)
     @test modes.electricModes ≈ Matrix{ComplexF64}(I, 2PQ, 2PQ)
 
-    # Eigenvalues should satisfy the dispersion relation λ = sqrt(kx² + ky² - εμ).
-    kx = diag(wv.waveVectorsX)
-    ky = diag(wv.waveVectorsY)
-    λ_expected = sqrt.(Complex.(kx.^2 .+ ky.^2 .- 1.0))
+    # Eigenvalues should satisfy the dispersion relation λ = -i kz with
+    # kz = sqrt(εμ - kx² - ky²), where the forward wave exp(ikz z) propagates
+    # (real kz > 0) or decays (imaginary kz with positive imaginary part).
+    kx = real(diag(wv.waveVectorsX))
+    ky = real(diag(wv.waveVectorsY))
+    kz2 = 1.0 .- kx.^2 .- ky.^2
+    kz_expected = [k >= 0 ? complex(sqrt(k)) : im * sqrt(-k) for k in kz2]
+    λ_expected = -im .* kz_expected
     @test modes.eigenvalues ≈ vcat(λ_expected, λ_expected)
+end
+
+@testset "Homogeneous modes: branch independent of signed zeros" begin
+    # Regression test: in 2D, orders with kx < 0 and ky < 0 have kx² + ky²
+    # with imaginary part -0.0 (e.g. (-0.5 + 0.0im)^2 == 0.25 - 0.0im). This
+    # used to put the square root on the wrong side of its branch cut, swapping
+    # forward and backward waves for those orders and breaking energy
+    # conservation for all genuinely 2D patterns.
+    @test (-0.5 + 0.0im)^2 === 0.25 - 0.0im # The culprit.
+    for s in (0.0, -0.0)
+        # Propagating: positive real kz regardless of the sign of zero.
+        @test CasualRCWA._forward_kz(complex(0.39, s)) ≈ sqrt(0.39)
+        @test real(CasualRCWA._forward_kz(complex(0.39, s))) > 0
+        # Evanescent: decaying in +z, so positive imaginary kz.
+        @test CasualRCWA._forward_kz(complex(-0.39, s)) ≈ im * sqrt(0.39)
+    end
+    # Absorbing: decaying in +z.
+    @test imag(CasualRCWA._forward_kz(2.25 + 0.1im)) > 0
+    @test real(CasualRCWA._forward_kz(2.25 + 0.1im)) > 0
+
+    wv = CasualRCWA.prepare_wave_vectors(
+        Source(0.6), Layer(1.0), Layer(1.5), (1.2, 1.0), (3, 3)
+    )
+    modes = CasualRCWA.compute_modes(CasualRCWA.convolve(Layer(1.0), (3, 3)), wv)
+    kz_air = -diag(wv.waveVectorsZReflection)
+    # Every harmonic in this setup propagates in air.
+    @test all(abs.(imag.(kz_air)) .< 1e-15) && all(real.(kz_air) .> 0)
+    @test modes.eigenvalues ≈ vcat(-im .* kz_air, -im .* kz_air)
+    @test all(real.(diag(wv.waveVectorsZTransmission)) .> 0)
 end
 
 # Common pattern for tests: 50% duty cycle grating (air/silicon in X).
@@ -480,7 +516,7 @@ end
 @testset "Energy conservation" begin
     # For a lossless grating, total reflected + transmitted power must equal 1.
     resolution = 256
-    n_glass = 1.5 - 0.0im
+    n_glass = 1.5 + 0.0im
     N, M = 3, 1
 
     # Homogeneous: "trivial" case.
@@ -506,7 +542,7 @@ end
     @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 0.05
 
     # Higher refractive index contrast. Energy should not exceed 1.
-    pattern = _make_mark_pattern(4.0 - 0.0im, resolution)
+    pattern = _make_mark_pattern(4.0 + 0.0im, resolution)
     input = RCWAInput(
         Source(0.0, 0.0, 532.0),
         Stack([Layer(1.0), Layer(pattern), Layer(4.0)],
@@ -521,7 +557,7 @@ end
 @testset "Very thin layer" begin
     # A very thin layer should behave almost like a bare interface: the zeroth-
     # order reflection should be close to Fresnel.
-    n_Si = 4.0 - 0.0im
+    n_Si = 4.0 + 0.0im
     resolution = 256
     N, M = 3, 1
     zeroth_p = N + 1
@@ -553,7 +589,7 @@ end
     # A very thick layer of a lossy material should absorb almost everything:
     # very little reflection from the grating structure (the bottom interface is
     # unreachable), and essentially zero transmission.
-    n_lossy = 1.5 - 0.5im # Lossy material (negative imag for this convention)
+    n_lossy = 1.5 + 0.5im # Lossy material (positive imaginary part)
     resolution = 256
     N, M = 3, 1
     zeroth_p = N + 1
@@ -584,7 +620,7 @@ end
 @testset "Layer splitting" begin
     # A single layer of thickness d must produce the same S-matrix as two layers
     # of thickness d/2 cascaded via the star product.
-    n_Si = 4.0 - 0.0im
+    n_Si = 4.0 + 0.0im
     resolution = 256
     d = 158.0
     N, M = 3, 1
@@ -631,7 +667,7 @@ end
 @testset "Unit cell duplication" begin
     # Tiling the unit cell 2× in X, doubling the period and number of X
     # harmonics, should reproduce the same zeroth-order efficiencies.
-    n_Si = 4.0 - 0.0im
+    n_Si = 4.0 + 0.0im
     resolution = 128
     pattern = _make_mark_pattern(n_Si, resolution)
 
@@ -713,11 +749,11 @@ end
             )
             result = RCWA(input)
 
-            # Analytical Fabry-Perot (negative sign convention: exp(-ikz)).
+            # Analytical Fabry-Perot (forward waves written as exp(ikz)).
             r12 = (n1 - n2) / (n1 + n2)
             r23 = (n2 - n3) / (n2 + n3)
             β = 2π * n2 * d / λ
-            r_fp = (r12 + r23 * exp(-2im * β)) / (1 + r12 * r23 * exp(-2im * β))
+            r_fp = (r12 + r23 * exp(2im * β)) / (1 + r12 * r23 * exp(2im * β))
             R_fp = abs(r_fp)^2
             T_fp = 1.0 - R_fp
 
@@ -747,7 +783,7 @@ end
             cos_2 = sqrt(1 - (n1 * sin(θ_i) / n2)^2)
             cos_3 = sqrt(1 - (n1 * sin(θ_i) / n3)^2)
             β = 2π * n2 * cos_2 * d / λ
-            X2 = exp(-2im * β)
+            X2 = exp(2im * β)
 
             input = RCWAInput(
                 Source(0.0, θ_i, λ),
@@ -789,7 +825,7 @@ end
     # structure, so the tolerance reflects the truncation accuracy.
     N, M = 3, 1
     resolution = 128
-    n_glass = 1.5 - 0.0im
+    n_glass = 1.5 + 0.0im
     pattern = _make_mark_pattern(n_glass, resolution)
 
     # Forward: air -> patterned glass layer -> glass substrate.
@@ -832,7 +868,7 @@ end
     N, M = 12, 0
     P = 2N + 1
     resolution = 256
-    n_space = 1.05 - 0.0im # Small contrast: Δn = 0.05
+    n_space = 1.05 + 0.0im # Small contrast: Δn = 0.05
     d = 5.0 # Very thin: d/λ ≈ 0.01
 
     pattern = _make_mark_pattern(n_space, resolution)
@@ -877,7 +913,7 @@ end
     Λx, Λy = 3200.0, 3200.0
     λ = 588.0
     d = 200.0
-    n_Cu = 0.63 - 2.78im
+    n_Cu = 0.63 + 2.78im
 
     # 2D pattern: rectangular patch (so there is Fourier content in both X and Y).
     # Convention: columns = X, rows = Y (top = +Y).
@@ -950,7 +986,7 @@ end
 end
 
 @testset "Output shapes" begin
-    n_Si = 4.0 - 0.0im
+    n_Si = 4.0 + 0.0im
     resolution = 256
     N, M = 3, 1
     P = 2N + 1
@@ -1005,7 +1041,7 @@ end
     # If input geometry is symmetric in X and Y, then there should be a
     # corresponding symmetry in the scattering matrices.
 
-    nk = [2-1im 1; 1 1]
+    nk = [2+1im 1; 1 1]
     air = Layer(1.0)
     layer = Layer(nk)
 
@@ -1123,37 +1159,87 @@ end
     @test DE_trn_1d ≈ DE_trn_ex
 end
 
-"""
-@testset "Mark in silicon" begin
-    # TODO: Explicit match against the reference MATLAB implementation.
-    # see sf_2d_silicon.m example
-    resolution = 1024
+# A pattern without any mirror symmetry, so that it couples all 2D orders.
+const _ASYMMETRIC_2D_PATTERN = [
+    1.0 1.0 2.0 2.0 2.0 1.0
+    1.0 1.0 2.0 2.0 1.0 1.0
+    2.0 1.0 1.0 1.0 1.0 1.0
+    2.0 2.0 1.0 1.0 1.0 1.0
+]
 
-    n_Si = 4.149970008756567 - 0.04395052539404554im
-    n_Air = 1.0
-    top_medium = Layer(n_Air)
-
-    # 50% duty cycle mark (columns = X)
-    mark = n_Si * ones(ComplexF64, resolution, resolution)
-    mark[:, (resolution ÷ 4 + 1):(3 * resolution ÷ 4)] .= n_Air
-
-    input = RCWAInput(
-        Source(0.0, 0.0, 532.0),
-        Stack([Layer(n_Air), Layer(mark), Layer(n_Si)],
-              [Inf, 158.0, Inf], (3200.0, 100.0)),
-        (3, 1)
+@testset "2D energy conservation" begin
+    # Truncation does not break energy conservation: the convolution matrices
+    # of a lossless layer are Hermitian. This failed for every genuinely 2D
+    # pattern before the branch fix in the homogeneous modes. The period avoids
+    # Rayleigh anomalies, where an infinitesimal loss is added on purpose.
+    stack = Stack(
+        [Layer(1.0), Layer(_ASYMMETRIC_2D_PATTERN), Layer(1.5)],
+        [Inf, 0.3, Inf], (1.05, 0.95)
     )
-
-    r = RCWA(input)
-
-    rc_x, rc_y = reflection_coefficients(r; polarization=:y)
-    round.(rc_y; digits = 9)
-    # These numbers MATCH (up to signs again -- but in a different way from S1)
-    # with R_ns(:, :, 1) that comes out of Compute_Target_Reflection_Coefficients!
-
-    rc_x, rc_y = reflection_coefficients(r; polarization=:x)
-    round.(rc_x; digits = 9)
-    # This one somehow matches less... Which is weird to me.
-
+    for (ϕ, θ) in [(0.0, 0.0), (0.7, 0.4), (-2.3, 0.5), (2.0, 0.2)], N in (1, 3)
+        result = RCWA(RCWAInput(Source(ϕ, θ, 0.6), stack, (N, N)))
+        for pol in (:x, :y, :s, :p)
+            DE_ref, DE_trn = diffraction_efficiencies(result; polarization = pol)
+            @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-10
+        end
+    end
 end
-"""
+
+@testset "Absorbing substrate" begin
+    # The power flowing into an absorbing substrate equals the power that is not
+    # reflected, provided the layers above are lossless. This checks the Poynting
+    # vector for complex kz.
+    n_Si = 4.15 + 0.044im
+    stack = Stack(
+        [Layer(1.0), Layer(_ASYMMETRIC_2D_PATTERN), Layer(n_Si)],
+        [Inf, 0.3, Inf], (0.85, 0.7)
+    )
+    for (ϕ, θ) in [(0.0, 0.0), (-2.3, 0.5)]
+        result = RCWA(RCWAInput(Source(ϕ, θ, 0.6), stack, (2, 2)))
+        for pol in (:s, :p)
+            DE_ref, DE_trn = diffraction_efficiencies(result; polarization = pol)
+            @test sum(DE_ref) + sum(DE_trn) ≈ 1.0 atol = 1e-10
+        end
+    end
+end
+
+@testset "Diagonal grating" begin
+    # A 1D grating along the diagonal of a square unit cell is a genuinely 2D
+    # pattern, but it only couples the orders (m, m), which are exactly the
+    # orders m of the equivalent 1D grating with period a/√2. At normal
+    # incidence, X-polarized light is an equal mix of TE and TM light for the
+    # diagonal grating, and TE and TM do not couple.
+    Npix = 128
+    a = 1.0
+    profile = [k < Npix ÷ 2 ? 1.0 : 2.0 for k in 0:(Npix - 1)]
+    # Pixel (ix, iy) has value profile[ix + iy]; row 1 is the +Y edge.
+    pattern = [profile[mod(ix + (Npix - r), Npix) + 1] for r in 1:Npix, ix in 0:(Npix - 1)]
+
+    N = 3
+    source = Source(0.6)
+    result_2d = RCWA(RCWAInput(
+        source,
+        Stack([Layer(1.0), Layer(pattern), Layer(1.5)], [Inf, 0.3, Inf], (a, a)),
+        (N, N)
+    ))
+    result_1d = RCWA(RCWAInput(
+        source,
+        Stack([Layer(1.0), Layer(reshape(profile, 1, :)), Layer(1.5)],
+              [Inf, 0.3, Inf], a / sqrt(2)),
+        N
+    ))
+
+    DE_ref_2d, DE_trn_2d = diffraction_efficiencies(result_2d; polarization = :x)
+    DE_ref_TM, DE_trn_TM = diffraction_efficiencies(result_1d; polarization = :x)
+    DE_ref_TE, DE_trn_TE = diffraction_efficiencies(result_1d; polarization = :y)
+
+    # The staircase pixels have slightly different Fourier coefficients than
+    # the pixels of the 1D profile (by a factor of order 1 - (πm/Npix)²).
+    for m in -N:N
+        i = N + 1 + m
+        @test DE_ref_2d[i, i] ≈ (DE_ref_TM[i] + DE_ref_TE[i]) / 2 atol = 1e-3
+        @test DE_trn_2d[i, i] ≈ (DE_trn_TM[i] + DE_trn_TE[i]) / 2 atol = 1e-3
+    end
+    off_diagonal = sum(DE_ref_2d) + sum(DE_trn_2d) - sum(DE_ref_2d[i, i] + DE_trn_2d[i, i] for i in 1:(2N + 1))
+    @test abs(off_diagonal) < 1e-12
+end

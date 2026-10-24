@@ -556,8 +556,8 @@ but using scattering matrices under the hood.
 using CasualRCWA
 using Printf
 
-n_air  = 1.0 - 0.0im
-n_film = 1.3 - 0.0im
+n_air  = 1.0
+n_film = 1.3
 d = 500.0 # nm
 
 r01 = (n_air - n_film) / (n_air + n_film)
@@ -574,7 +574,7 @@ for λ in [400.0, 433.0, 500.0, 532.0, 600.0, 650.0, 800.0]
         [Inf, d, Inf] # Thicknesses
     )
     output = RCWA(RCWAInput(source, stack))
-    r_x, _ = reflection_coefficients(output)
+    r_x, _ = reflection_coefficients(output; polarization = :x)
 
     @printf("λ = %3d nm:  |r|² analytical = %8.6f,  |r|² RCWA = %8.6f\n", Int(λ), abs2(r_an), abs2(r_x[1,1]))
 end
@@ -593,9 +593,9 @@ stack = Stack(
 )
 output = RCWA(RCWAInput(source, stack))
 
-r_x, _ = reflection_coefficients(output)
-t_x, _ = transmission_coefficients(output)
-DE_ref, DE_trn = diffraction_efficiencies(output)
+r_x, _ = reflection_coefficients(output; polarization = :x)
+t_x, _ = transmission_coefficients(output; polarization = :x)
+DE_ref, DE_trn = diffraction_efficiencies(output; polarization = :x)
 
 @printf("Complex reflection coefficient:   r = %9.6f%+9.6fi\n", real(r_x[1,1]), imag(r_x[1,1]))
 @printf("Complex transmission coefficient: t = %9.6f%+9.6fi\n", real(t_x[1,1]), imag(t_x[1,1]))
@@ -627,8 +627,8 @@ matrices internally, it should handle this problem without difficulty:
 ```@example tmm
 using CasualRCWA
 
-n_glass = 1.5 - 0.0im
-n_air   = 1.0 - 0.0im
+n_glass = 1.5
+n_air   = 1.0
 source  = Source(0.0, π/4, 532.0) # 45° elevation
 
 for d in [0.1, 1.0, 10.0, 60.0, 1000.0] .* 532.0
@@ -828,8 +828,8 @@ using CasualRCWA
 using LinearAlgebra
 using Printf
 
-n_Si  = 4.0 - 0.0im
-n_air = 1.0 - 0.0im
+n_Si  = 4.0
+n_air = 1.0
 
 # A 50% duty cycle 1D grating: left half silicon, right half air.
 grating = [n_Si n_air]
@@ -858,16 +858,13 @@ A few things to note:
 
 ### A remark about signs
 
-The exposition above uses the standard sign convention found in optics
-textbooks, in which z points _up_, and the refractive index has
-$\operatorname{Im}(n) > 0$. In contrast, CasualRCWA uses the _negative_ sign
-convention. Waves travel _down_, and the imaginary part of the refractive index
-is _negative_ for an absorbing material. The reason for this choice was for
-compatibility reasons with a pre-existing simulator that uses the negative sign
-convention. That is why the example above suggestively writes `4.0 - 0.0im`
-rather than `4.0 + 0.0im`.
-
-Always make sure to make an even number of sign errors.
+CasualRCWA uses the same conventions as the exposition above, which are the
+standard ones in optics. Fields vary as $e^{i(\mathbf{k}\cdot\mathbf{r} - \omega t)}$,
+so an absorbing material has $\operatorname{Im}(n) > 0$; silicon at 532 nm, for
+example, is `4.15 + 0.044im`. The z-axis points into the stack: light enters
+from the top half-space and travels in the $+z$ direction. Finally, diffraction
+order $n$ has in-plane wave vector $k_x + n\,2\pi/\Lambda$, and it is found at
+index $N + 1 + n$ of the output matrices.
 
 ### Inspecting the wave vectors
 
@@ -906,9 +903,8 @@ end
 This reveals the propagating/evanescent structure directly:
 
 - Order $0$ in air: $k_z = -1.0$, purely real. This is a propagating wave. The
-  negative sign indicates it travels in the $-z$ direction. (In CasualRCWA,
-  which uses the negative sign convention, the z direction points down.) This is
-  the only propagating reflected order.
+  negative sign indicates it travels in the $-z$ direction, back up and away
+  from the grating. This is the only propagating reflected order.
 - Orders $\pm 1$, $\pm 2$, ... in air: $k_z$ is purely imaginary (e.g.
   $\approx -0.88i$ for order $\pm 1$). These are evanescent; they decay
   exponentially away from the surface and carry no power to a distant detector.
@@ -936,7 +932,8 @@ for (i, λ) in enumerate(output.modes[1].eigenvalues)
 end
 ```
 
-Only modes 6 and 17 are purely imaginary ($\lambda = i$). These are the
+Only modes 6 and 17 are purely imaginary ($\lambda = -i$, which corresponds to
+the forward wave $e^{-\lambda z} = e^{iz}$ in normalized units). These are the
 zeroth-order harmonic for each polarization. All other modes are purely real
 (evanescent), consistent with what the wave vectors showed us earlier.
 
@@ -1033,7 +1030,7 @@ end
 ```
 
 The `x` and `y` subscripts refer to the two transverse polarization components
-of the electric field. Since the incident wave is $x$-polarised (the default),
+of the electric field. Since the incident wave is $x$-polarised,
 all reflected light stays in the $x$-component and $r_y = 0$ throughout. A
 structure that breaks the symmetry between x and y (e.g. a 2D grating at an
 oblique angle) would produce nonzero $r_y$.

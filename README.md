@@ -8,8 +8,8 @@ for simulating diffraction from periodic structures.
 
 ## Example: 1D Silicon Grating
 
-Simulate a binary silicon grating (period 1 um, 50% duty cycle, 500 nm thick) at
-600 nm wavelength under normal incidence.
+Simulate a binary glass grating (period 1 um, 50% duty cycle, 500 nm thick) on a
+glass substrate at 600 nm wavelength under normal incidence.
 
 ```julia
 using CasualRCWA
@@ -76,3 +76,17 @@ println("Transmission: ", round.(DE_trn; digits = 2))
 Reflection: [-0.0; -0.0; -0.0; -0.0; 0.01; 0.01; 0.01; -0.0; -0.0; -0.0; -0.0;;]
 Transmission: [0.0; 0.0; 0.0; 0.03; 0.33; 0.25; 0.33; 0.03; 0.0; 0.0; 0.0;;]
 ```
+
+## Conventions
+
+- Complex refractive indices are written as `n + ik` with `k ≥ 0` for absorbing
+  materials, as in most refractive index databases.
+- Fields vary as `exp(i(k·r - ωt))`.
+- Light comes in from the first layer of the stack and travels in the +z
+  direction.
+- For `order = (N, M)`, the output matrices have size `(2N + 1) × (2M + 1)`, and
+  the entry at index `[N + 1 + m, M + 1 + n]` is diffraction order `(m, n)`.
+  This order has in-plane wave vector `k_inc + (m 2π/Λx, n 2π/Λy)`.
+- Layer patterns are given as matrices whose columns run along X and whose rows
+  run along Y, with the first row at the +Y edge, like a picture of the unit
+  cell.

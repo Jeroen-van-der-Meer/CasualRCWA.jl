@@ -72,10 +72,15 @@ function compute_modes(
     
     # Rayleigh anomaly occurs when you have grazing harmonics with zero
     # eigenvalues. These cause singularities in the scattering matrices. We
-    # perturb the squared eigenvalues by adding an infinitesimal loss.
+    # perturb the squared eigenvalues by adding an infinitesimal loss, which
+    # adds a positive imaginary part to ε and hence a negative one to λ².
     Rayleigh_anomalies = abs.(eigenvalues2) .< RAYLEIGH_TOL
-    eigenvalues2[Rayleigh_anomalies] .+= im * RAYLEIGH_PERTURB
+    eigenvalues2[Rayleigh_anomalies] .-= im * RAYLEIGH_PERTURB
 
+    # The principal square root has a nonnegative real part, so exp(-λz) never
+    # grows in the +z direction. For propagating modes (λ purely imaginary) the
+    # sign is arbitrary, but this does not affect the scattering matrix of a
+    # layer, which is independent of how its internal modes are labeled.
     eigenvalues = sqrt.(eigenvalues2)
 
     # The magnetic fields adhere to a similar wave equation. Its eigenvalues are
@@ -90,7 +95,12 @@ Compute eigenmodes analytically for a homogeneous layer.
 
 In a homogeneous medium, all spatial harmonics decouple, so the eigenvectors are
 simply the identity matrix. The eigenvalues are determined by the dispersion
-relation: λ_n = sqrt(kx_n² + ky_n² - εμ).
+relation: λ_n = -i kz_n with kz_n = sqrt(εμ - kx_n² - ky_n²).
+
+Unlike for patterned layers, the branch of the square root matters here: the
+modes of the half-spaces and of the free-space gap medium define which waves
+count as incoming and outgoing in the scattering matrices. The forward mode
+exp(-λ z) = exp(i kz z) must travel or decay in the +z direction.
 """
 function compute_modes_homogeneous(
     ε::ComplexF64,
@@ -100,21 +110,21 @@ function compute_modes_homogeneous(
 )
     PQ = size(Kx, 1)
 
-    # Each spatial harmonic n has eigenvalue sqrt(kx_n² + ky_n² - εμ),
-    # repeated for both polarizations.
     kx = diag(Kx)
     ky = diag(Ky)
-    eigenvalues2 = Complex.(kx.^2 .+ ky.^2 .- ε * μ)
+    kz2 = ε * μ .- kx.^2 .- ky.^2
 
     # Rayleigh anomaly occurs when you have grazing harmonics with zero
     # eigenvalues. These cause singularities in the scattering matrices. We
-    # perturb the squared eigenvalues by adding an infinitesimal loss.
-    Rayleigh_anomalies = abs.(eigenvalues2) .< RAYLEIGH_TOL
+    # perturb the permittivity by adding an infinitesimal loss.
+    Rayleigh_anomalies = abs.(kz2) .< RAYLEIGH_TOL
     ε_pert = fill(ε, PQ)
-    ε_pert[Rayleigh_anomalies] .-= im * RAYLEIGH_PERTURB
-    eigenvalues2[Rayleigh_anomalies] .+= im * RAYLEIGH_PERTURB * μ
+    ε_pert[Rayleigh_anomalies] .+= im * RAYLEIGH_PERTURB
+    kz2[Rayleigh_anomalies] .+= im * RAYLEIGH_PERTURB * μ
 
-    eigenvalues = sqrt.(eigenvalues2)
+    # Each spatial harmonic n has eigenvalue -i kz_n, repeated for both
+    # polarizations.
+    eigenvalues = -im .* _forward_kz.(kz2)
     eigenvalues = vcat(eigenvalues, eigenvalues)
 
     # Eigenvectors are the identity (harmonics decouple in homogeneous media).
