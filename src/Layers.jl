@@ -81,12 +81,12 @@ matrix format which is convenient for efficiently performing RCWA.
 
 # Properties
 
-- `conv_eps::BTTB`: Convolved electric permittivity.
-- `conv_mu::BTTB`: Convolved magnetic permeability.
+- `conv_eps::Matrix{ComplexF64}`: Convolved electric permittivity.
+- `conv_mu::Matrix{ComplexF64}`: Convolved magnetic permeability.
 """
 struct ConvolvedLayer <: AbstractLayer
-    conv_eps::BTTB
-    conv_mu::BTTB
+    conv_eps::Matrix{ComplexF64}
+    conv_mu::Matrix{ComplexF64}
 
     function ConvolvedLayer(
         conv_eps::AbstractMatrix{<:Number},
@@ -104,8 +104,10 @@ convolve(layer::ConvolvedLayer, ::Tuple{<:Integer, <:Integer}) = layer
     convolve(layer, number_of_harmonics)
 
 Apply a convolution to a given layer. Concretely, this amounts to taking the 2D
-Fourier transform, and subsequently reordering the elements in a Toeplitz block
-matrix form.
+Fourier transform, and subsequently arranging the Fourier coefficients in a
+convolution matrix, whose entry for harmonics (p, q) and (p', q') is the Fourier
+coefficient of order (p - p', q - q'). Harmonics are ordered with X varying
+fastest.
 
 # Arguments
 
@@ -128,48 +130,28 @@ function convolve(
 )
     P, Q = number_of_harmonics
     @assert (P >= 1) && (Q >= 1)
-    if length(unique(M)) == 1
-        # For a homogeneous layer, the convolve operation is independent of the
-        # size of M, so we set M to be the minimum size to make the computation
-        # go through.
-        M = first(M) * ones(P, Q)
+    if _is_homogeneous(M)
+        # Only the zeroth Fourier coefficient is nonzero.
+        return Matrix{ComplexF64}(first(M) * I, P * Q, P * Q)
     end
     Nx, Ny = size(M)
-    FM = fft(M)
-    # Build blocks for all Y-harmonic differences Δq = -(Q-1)..+(Q-1).
-    blocks = [_get_block(FM, Nx, Ny, Δq, P) for Δq in -(Q-1):(Q-1)]
-    vc = blocks[Q:2Q-1]     # Δq = 0, 1, ..., Q-1
-    vr = blocks[Q:-1:1]     # Δq = 0, -1, ..., -(Q-1)
-    return BTTB(vc, vr)
-end
+    FM = fft(M) / (Nx * Ny)
 
-"""
-    _get_block(FM, Nx, Ny, Δq, P)
+    # Each Fourier coefficient is the exact one of the piecewise-constant
+    # function defined by the pixel grid. This is the DFT coefficient multiplied
+    # by the transfer function of a rectangular pixel, which makes the result
+    # independent of the input resolution.
+    coefficients = [
+        FM[mod(Δp, Nx) + 1, mod(Δq, Ny) + 1] *
+            _pixel_transfer(Δp, Nx) * _pixel_transfer(Δq, Ny)
+        for Δp in -(P - 1):(P - 1), Δq in -(Q - 1):(Q - 1)
+    ]
 
-Build the Toeplitz block for Y-harmonic difference `Δq` from the FFT `FM` of
-a pattern of native size `(Nx, Ny)`.
-
-Each entry is the exact Fourier coefficient of the piecewise-constant function
-defined by the pixel grid.  This is the raw DFT coefficient multiplied by the
-rectangular-pixel transfer function `h(k, N)`, which makes the result
-independent of the input resolution.
-"""
-function _get_block(FM::Matrix{ComplexF64}, Nx::Int64, Ny::Int64, Δq::Int64, P::Int64)
-    hq = _pixel_transfer(Δq, Ny)
-    vc = Vector{ComplexF64}(undef, P)
-    vr = Vector{ComplexF64}(undef, P)
-    for j in 1:P
-        Δp = j - 1   # 0, 1, ..., P-1
-        vc[j] = FM[mod(Δp, Nx) + 1, mod(Δq, Ny) + 1] / (Nx * Ny) *
-                _pixel_transfer(Δp, Nx) * hq
-    end
-    vr[1] = vc[1]
-    for j in 2:P
-        Δp = -(j - 1)   # -1, -2, ..., -(P-1)
-        vr[j] = FM[mod(Δp, Nx) + 1, mod(Δq, Ny) + 1] / (Nx * Ny) *
-                _pixel_transfer(Δp, Nx) * hq
-    end
-    return Toeplitz{ComplexF64}(vc, vr)
+    harmonics = vec(CartesianIndices((P, Q))) # X varies fastest.
+    return [
+        coefficients[h[1] - h′[1] + P, h[2] - h′[2] + Q]
+        for h in harmonics, h′ in harmonics
+    ]
 end
 
 # Transfer function of a single rectangular pixel of width 1/N in a unit cell.

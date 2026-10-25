@@ -1,7 +1,7 @@
 struct LayerModes
     eigenvalues::Vector{ComplexF64}
-    electricModes::Matrix{ComplexF64}
-    magneticModes::Matrix{ComplexF64}
+    electricModes::AbstractMatrix{ComplexF64} # DiagonalBlocks if homogeneous
+    magneticModes::AbstractMatrix{ComplexF64} # DiagonalBlocks if homogeneous
 
     function LayerModes(
         eigenvalues::AbstractVector{<:Number},
@@ -66,7 +66,7 @@ function compute_modes(
 
     # The solution to this equation is expressible in terms of the eigenmodes
     # of Ω, so we may precompute these.
-    eigenvalues2, E_modes = eigen(Ω2)
+    eigenvalues2, E_modes = _eigen_blockwise!(Ω2)
 
     _stabilize_eigenvectors!(eigenvalues2, E_modes)
     
@@ -128,19 +128,40 @@ function compute_modes_homogeneous(
     eigenvalues = vcat(eigenvalues, eigenvalues)
 
     # Eigenvectors are the identity (harmonics decouple in homogeneous media).
-    E_modes = Matrix{ComplexF64}(I, 2PQ, 2PQ)
+    E_modes = DiagonalBlocks(I, PQ)
 
     # Magnetic modes: M_modes = Q * E_modes * diag(1/eigenvalues)
     # Since E_modes = I, this simplifies to Q * diag(1/eigenvalues).
-    MKx = Kx / μ
-    MKy = Ky / μ
-    Q = Matrix{ComplexF64}([
-        Kx*MKy                   -Kx*MKx+Diagonal(ε_pert);
-        Ky*MKy-Diagonal(ε_pert)  -Ky*MKx
-    ])
+    Q = DiagonalBlocks(
+        kx .* ky ./ μ, ε_pert .- kx.^2 ./ μ,
+        ky.^2 ./ μ .- ε_pert, -kx .* ky ./ μ
+    )
     M_modes = Q * Diagonal(1 ./ eigenvalues)
 
     return LayerModes(eigenvalues, E_modes, M_modes)
+end
+
+"""
+Eigendecomposition of Ω² that exploits decoupled polarizations.
+
+When the off-diagonal blocks of Ω² vanish, the X and Y components of the
+electric field decouple, and the two diagonal blocks may be diagonalized
+separately.
+"""
+function _eigen_blockwise!(Ω2::Matrix{ComplexF64})
+    n = size(Ω2, 1) ÷ 2
+    top, bottom = 1:n, (n + 1):2n
+    if iszero(view(Ω2, top, bottom)) && iszero(view(Ω2, bottom, top))
+        F1 = eigen!(Ω2[top, top])
+        F2 = eigen!(Ω2[bottom, bottom])
+        vectors = zeros(ComplexF64, 2n, 2n)
+        vectors[top, top] = F1.vectors
+        vectors[bottom, bottom] = F2.vectors
+        return vcat(F1.values, F2.values), vectors
+    else
+        F = eigen!(Ω2)
+        return F.values, F.vectors
+    end
 end
 
 """

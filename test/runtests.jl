@@ -1244,6 +1244,38 @@ end
     @test abs(off_diagonal) < 1e-12
 end
 
+@testset "Full scattering matrix" begin
+    # By default, the stack is assembled bottom-up, computing only S11 and S21.
+    # The full, top-down assembly must give the same blocks.
+    mark = Layer(_ASYMMETRIC_2D_PATTERN)
+    lossy = Layer(permutedims(_ASYMMETRIC_2D_PATTERN) .+ 0.05im)
+    stacks = [
+        # Patterned, homogeneous, lossy and repeated layers.
+        Stack([Layer(1.3), mark, Layer(1.8), lossy, mark, Layer(1.5)],
+              [Inf, 0.2, 0.1, 0.15, 0.2, Inf], (1.05, 0.95)),
+        # Homogeneous layers only.
+        Stack([Layer(1.0), Layer(1.8), Layer(1.4), Layer(1.5)],
+              [Inf, 0.2, 0.1, Inf], (1.05, 0.95)),
+    ]
+    for stack in stacks
+        input = RCWAInput(Source(0.0, 0.0, 0.6), stack, (2, 2))
+        S = RCWA(input).scatteringMatrix
+        S_full = RCWA(input; full_scattering_matrix = true).scatteringMatrix
+        @test S.S11 ≈ S_full.S11 atol = 1e-12
+        @test S.S21 ≈ S_full.S21 atol = 1e-12
+        @test_throws ArgumentError S.S12
+        @test_throws ArgumentError S.S22
+
+        # Illuminating a stack from the bottom is the same as illuminating the
+        # reversed stack from the top. (At normal incidence, the harmonics are
+        # the same for both.)
+        reversed = Stack(reverse(stack.layers), reverse(stack.thicknesses), stack.period)
+        S_reversed = RCWA(RCWAInput(input.source, reversed, input.order)).scatteringMatrix
+        @test S_full.S22 ≈ S_reversed.S11 atol = 1e-12
+        @test S_full.S12 ≈ S_reversed.S21 atol = 1e-12
+    end
+end
+
 # Test to end all tests: 2D regression against reference implementation.
 # Used Python's grcwa as reference.
 # Reference numbers were produced with the following Python script:

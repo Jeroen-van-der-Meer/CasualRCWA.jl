@@ -8,17 +8,20 @@ periodic layer wedged in between two homogeneous media.
 
 # Properties
 
-- `S11::Matrix{ComplexF64}`: Reflection in the top medium.
-- `S12::Matrix{ComplexF64}`: Transmission from the bottom to the top medium.
-- `S21::Matrix{ComplexF64}`: Transmission from the top to the bottom medium.
-- `S22::Matrix{ComplexF64}`: Reflection in the bottom medium.
+- `S11::AbstractMatrix{ComplexF64}`: Reflection in the top medium.
+- `S12::AbstractMatrix{ComplexF64}`: Transmission from the bottom to the top medium.
+- `S21::AbstractMatrix{ComplexF64}`: Transmission from the top to the bottom medium.
+- `S22::AbstractMatrix{ComplexF64}`: Reflection in the bottom medium.
+
+When only illumination from the top is of interest, `S12` and `S22` may be left
+out (`nothing`). Accessing them then throws an error.
 """
 struct ScatteringMatrix <: AbstractScatteringMatrix
-    S11::Matrix{ComplexF64}
-    S12::Matrix{ComplexF64}
-    S21::Matrix{ComplexF64}
-    S22::Matrix{ComplexF64}
-    
+    S11::AbstractMatrix{ComplexF64}
+    S12::Union{Nothing, AbstractMatrix{ComplexF64}}
+    S21::AbstractMatrix{ComplexF64}
+    S22::Union{Nothing, AbstractMatrix{ComplexF64}}
+
     function ScatteringMatrix(
         S11::AbstractMatrix{<:Number},
         S12::AbstractMatrix{<:Number},
@@ -35,11 +38,34 @@ struct ScatteringMatrix <: AbstractScatteringMatrix
         @assert s12[2] == s22[2]
         return new(S11, S12, S21, S22)
     end
+
+    function ScatteringMatrix(
+        S11::AbstractMatrix{<:Number},
+        ::Nothing,
+        S21::AbstractMatrix{<:Number},
+        ::Nothing
+    )
+        @assert size(S11, 2) == size(S21, 2)
+        return new(S11, nothing, S21, nothing)
+    end
 end
 
+function Base.getproperty(S::ScatteringMatrix, v::Symbol)
+    block = getfield(S, v)
+    if isnothing(block)
+        throw(ArgumentError(
+            "$v (illumination from the bottom) was not computed. Use " *
+            "`RCWA(input; full_scattering_matrix = true)` to compute it."
+        ))
+    end
+    return block
+end
+
+# The bottom-side blocks may be missing, but their size is known: the S-matrix
+# maps as many modes on the bottom side as there are transmitted modes.
 Base.size(S::ScatteringMatrix) = (
     size(S.S11, 1) + size(S.S21, 1),
-    size(S.S11, 2) + size(S.S12, 2)
+    size(S.S11, 2) + size(S.S21, 1)
 )
 
 function Base.getindex(S::ScatteringMatrix, i::Integer, j::Integer)
@@ -69,13 +95,13 @@ respectively.
 
 # Properties
 
-- `S11::Matrix{ComplexF64}`: Reflection in either homogeneous medium.
-- `S12::Matrix{ComplexF64}`: Transmission from either homogeneous
+- `S11::AbstractMatrix{ComplexF64}`: Reflection in either homogeneous medium.
+- `S12::AbstractMatrix{ComplexF64}`: Transmission from either homogeneous
   medium into the periodic layer.
 """
 struct SymmetricScatteringMatrix <: AbstractScatteringMatrix
-    S11::Matrix{ComplexF64}
-    S12::Matrix{ComplexF64}
+    S11::AbstractMatrix{ComplexF64}
+    S12::AbstractMatrix{ComplexF64}
 
     function SymmetricScatteringMatrix(
         S11::AbstractMatrix{<:Number},
@@ -133,12 +159,16 @@ Compute the global scattering matrix associated to a stack of RCWA layers.
 - `wavelength::Real`: Wavelength of the incoming light.
 - `thicknesses::AbstractVector{<:Real}`: Thicknesses of each layer. The first
   and last elements must be `Inf`.
+- `full::Bool = false`: Whether to compute the blocks `S12` and `S22`, which
+  describe illumination from the bottom. These are not needed for illumination
+  from the top, and leaving them out saves about 40% of the work per layer.
 """
 function compute_global_scattering_matrix(
     modes::AbstractVector{LayerModes},
     free_space_modes::LayerModes,
     wavelength::Real,
-    thicknesses::AbstractVector{<:Real}
+    thicknesses::AbstractVector{<:Real};
+    full::Bool = false
 )
     nmodes = number_of_modes(first(modes))
     @assert all(number_of_modes.(modes) .== nmodes)
@@ -146,14 +176,34 @@ function compute_global_scattering_matrix(
     @assert wavelength > 0
     @assert length(thicknesses) == length(modes)
 
-    Sg = compute_top_scattering_matrix(first(modes), free_space_modes)
-    for (lt, lm) in zip(thicknesses[(begin + 1):(end - 1)], modes[(begin + 1):(end - 1)])
-        S = compute_symmetric_scattering_matrix(lm, free_space_modes, wavelength, lt)
-        Sg = star_product(Sg, S)
+    top = compute_top_scattering_matrix(first(modes), free_space_modes)
+    bottom = compute_bottom_scattering_matrix(free_space_modes, last(modes))
+
+    # Repeated layers (identical modes and thickness) share their S-matrix.
+    cache = IdDict{Tuple{LayerModes, Float64}, SymmetricScatteringMatrix}()
+    layers = map(thicknesses[(begin + 1):(end - 1)], modes[(begin + 1):(end - 1)]) do lt, lm
+        get!(cache, (lm, lt)) do
+            compute_symmetric_scattering_matrix(lm, free_space_modes, wavelength, lt)
+        end
     end
-    S = compute_bottom_scattering_matrix(free_space_modes, last(modes))
-    Sg = star_product(Sg, S)
-    return Sg
+
+    if full
+        # Top-down: every intermediate result needs all four blocks, because
+        # the next layer down needs its S12 and S22.
+        Sg = top
+        for S in layers
+            Sg = star_product(Sg, S)
+        end
+        return star_product(Sg, bottom)
+    else
+        # Bottom-up: every intermediate result describes the part of the stack
+        # below some layer, as seen from above. Only its S11 and S21 are needed.
+        Sg = bottom
+        for S in Iterators.reverse(layers)
+            Sg = star_product_from_top(S, Sg)
+        end
+        return star_product_from_top(top, Sg)
+    end
 end
 
 """
@@ -190,23 +240,16 @@ function compute_symmetric_scattering_matrix(
 end
 
 function _compute_symmetric_scattering_matrix(
-    A::Matrix{ComplexF64},
-    B::Matrix{ComplexF64},
+    A::AbstractMatrix{ComplexF64},
+    B::AbstractMatrix{ComplexF64},
     X::Diagonal{ComplexF64}
 )
     XA = X * A
     XB = X * B
-    
-    AiXB = A \ XB
-    
-    R1 = A - XB * AiXB
-    R2 = XB * (A \ XA) - B
-    R = R1 \ R2
-
-    T1 = A - XB * AiXB
-    T2 = XA - XB * (A \ B)
-    T = T1 \ T2
-
+    even = (A - XB) \ (XA - B)
+    odd = (A + XB) \ (XA + B)
+    R = (even - odd) / 2
+    T = (even + odd) / 2
     return R, T
 end
 
@@ -262,11 +305,11 @@ function compute_bottom_scattering_matrix(
 end
 
 function _compute_flat_scattering_matrix(
-    A::Matrix{ComplexF64},
-    B::Matrix{ComplexF64}
+    A::AbstractMatrix{ComplexF64},
+    B::AbstractMatrix{ComplexF64}
 )
-    # FIXME: I think A and B have a very simple structure always. Can probably
-    # make use of that.
+    # A and B describe an interface between two homogeneous media, so they are
+    # DiagonalBlocks matrices and all operations below cost O(n).
     Ai = inv(A)
     mAiB = -Ai * B
     S11 = mAiB
@@ -304,4 +347,35 @@ function star_product(A::AbstractScatteringMatrix, B::AbstractScatteringMatrix)
     P22 = B22 + T21 * A22 * B12
 
     return ScatteringMatrix(P11, P12, P21, P22)
+end
+
+"""
+    function star_product_from_top(A, B)
+
+Redheffer star product restricted to illumination from the top: compute only the
+blocks `S11` and `S21` of `star_product(A, B)`. These only depend on the blocks
+`S11` and `S21` of `B`, so `B` may itself be the result of this function. This
+allows building up a stack from the bottom, at about 60% of the cost of the full
+star product.
+
+# Arguments
+
+- `A::AbstractScatteringMatrix`: Upper system; all four blocks are needed.
+- `B::AbstractScatteringMatrix`: Lower system; only `S11` and `S21` are needed.
+"""
+function star_product_from_top(A::AbstractScatteringMatrix, B::AbstractScatteringMatrix)
+    A11 = A.S11; A12 = A.S12; A21 = A.S21; A22 = A.S22;
+    B11 = B.S11; B21 = B.S21;
+    n = size(A22, 1)
+    @assert n == size(B11, 1)
+
+    # With F = (I - B11 A22)⁻¹, the full star product reads
+    #   P11 = A11 + A12 F B11 A21,   P21 = B21 (I - A22 B11)⁻¹ A21.
+    # By the push-through identity (I - A22 B11)⁻¹ = I + A22 F B11, both only
+    # need Y = F B11 A21, which takes a single linear solve.
+    Y = (I(n) - B11 * A22) \ (B11 * A21)
+    P11 = A11 + A12 * Y
+    P21 = B21 * (A21 + A22 * Y)
+
+    return ScatteringMatrix(P11, nothing, P21, nothing)
 end

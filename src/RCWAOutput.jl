@@ -20,6 +20,8 @@ the bottom interface.
 - `modes::Vector{LayerModes}`: Eigenmodes of each layer (including top and
   bottom half-spaces as the first and last elements).
 - `scatteringMatrix::ScatteringMatrix`: Global scattering matrix of the stack.
+  Its blocks `S12` and `S22` (illumination from the bottom) are only available
+  if `RCWA` was called with `full_scattering_matrix = true`.
 """
 struct RCWAOutput
     input::RCWAInput
